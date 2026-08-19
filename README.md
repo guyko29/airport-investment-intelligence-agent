@@ -4,6 +4,9 @@ An AI agent for a firm investing in US airport modernisation. It identifies airp
 where a terminal renovation would be most profitable, using deterministic scoring over
 public aviation data with a conversational interface on top.
 
+**Live demo:** <https://airport-investment-agent-2l5f.onrender.com/>
+(hosted on Render's free tier — the first request after idling can take ~30s to wake up)
+
 See **[DESIGN.md](DESIGN.md)** for the scoring methodology, tradeoffs, and where AI is
 and is not used.
 
