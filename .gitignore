@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+cache/
+.env
+data/segments/*.csv
+!data/segments/.gitkeep
+.pytest_cache/
+
+# Working material, not part of the deliverable.
+*.pdf
+airport-agent-guide-he.html

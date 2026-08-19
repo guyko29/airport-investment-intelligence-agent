@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: airport-investment-agent
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      # Set in the Render dashboard, never committed.
+      - key: ANTHROPIC_API_KEY
+        sync: false
+
+# The BTS cache is deliberately not built here. The free plan has no persistent
+# disk, so anything written at build time is gone by the next spin-up; the app
+# ingests on startup instead (see `_ensure_data` in app/main.py). That costs
+# ~30s on a cold start and keeps the data as fresh as BTS publishes it.

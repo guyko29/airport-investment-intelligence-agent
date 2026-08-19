@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Airport Investment Intelligence Agent</title>
+<style>
+  :root {
+    --bg: #0f1216;
+    --panel: #161b22;
+    --panel-2: #1c232c;
+    --border: #2a3340;
+    --text: #e6edf3;
+    --muted: #8b98a8;
+    --accent: #4a9eff;
+    --accent-dim: #1e3a5f;
+    --user: #223449;
+    --ok: #3fb950;
+    --warn: #d29922;
+    --err: #f85149;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    display: flex; flex-direction: column;
+  }
+
+  header {
+    padding: 14px 20px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
+    background: var(--panel);
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; letter-spacing: -0.01em; }
+  header .meta { font-size: 12px; color: var(--muted); font-family: var(--mono); }
+  header .spacer { flex: 1; }
+  header button {
+    background: transparent; border: 1px solid var(--border); color: var(--muted);
+    padding: 5px 12px; border-radius: 6px; cursor: pointer; font-size: 12px;
+  }
+  header button:hover { color: var(--text); border-color: var(--accent); }
+
+  main { flex: 1; display: flex; min-height: 0; }
+
+  #chat-col { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  #messages { flex: 1; overflow-y: auto; padding: 24px 20px; }
+  .msg { max-width: 780px; margin: 0 auto 22px; }
+  .msg .role {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.09em;
+    color: var(--muted); margin-bottom: 6px; font-weight: 600;
+  }
+  .msg.user .bubble {
+    background: var(--user); padding: 11px 15px; border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .msg.assistant .bubble { white-space: pre-wrap; }
+  .msg.assistant .bubble table {
+    border-collapse: collapse; margin: 12px 0; font-size: 13.5px; width: 100%;
+  }
+  .msg.assistant .bubble th, .msg.assistant .bubble td {
+    border: 1px solid var(--border); padding: 6px 10px; text-align: left;
+  }
+  .msg.assistant .bubble th { background: var(--panel-2); font-weight: 600; }
+  .msg.assistant .bubble code {
+    font-family: var(--mono); font-size: 13px;
+    background: var(--panel-2); padding: 1px 5px; border-radius: 4px;
+  }
+  .msg.error .bubble {
+    border: 1px solid var(--err); color: #ffc9c4; background: #2d1414;
+    padding: 11px 15px; border-radius: 10px;
+  }
+
+  .banner {
+    max-width: 780px; margin: 0 auto 20px; padding: 11px 15px; border-radius: 9px;
+    border: 1px solid var(--warn); background: #2b2211; color: #f0d9a0; font-size: 13.5px;
+  }
+
+  #empty { max-width: 780px; margin: 40px auto; color: var(--muted); }
+  #empty h2 { color: var(--text); font-size: 19px; margin: 0 0 8px; font-weight: 600; }
+  #empty p { margin: 0 0 22px; font-size: 14px; }
+  .examples { display: grid; gap: 9px; }
+  .examples button {
+    text-align: left; background: var(--panel); border: 1px solid var(--border);
+    color: var(--text); padding: 12px 15px; border-radius: 9px; cursor: pointer;
+    font-size: 14px; font-family: inherit; transition: border-color .12s, background .12s;
+  }
+  .examples button:hover { border-color: var(--accent); background: var(--panel-2); }
+
+  #composer {
+    border-top: 1px solid var(--border); padding: 14px 20px; background: var(--panel);
+  }
+  #composer .inner { max-width: 780px; margin: 0 auto; display: flex; gap: 10px; }
+  #input {
+    flex: 1; resize: none; background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 9px; padding: 11px 14px;
+    font: inherit; min-height: 46px; max-height: 190px;
+  }
+  #input:focus { outline: none; border-color: var(--accent); }
+  #send {
+    background: var(--accent); border: 0; color: #06101c; font-weight: 650;
+    padding: 0 22px; border-radius: 9px; cursor: pointer; font-size: 14px;
+  }
+  #send:disabled { opacity: .45; cursor: not-allowed; }
+
+  /* activity sidebar */
+  #side {
+    width: 350px; border-left: 1px solid var(--border); background: var(--panel);
+    display: flex; flex-direction: column; min-height: 0;
+  }
+  #side h2 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.09em;
+    color: var(--muted); margin: 0; padding: 14px 16px 10px; font-weight: 600;
+  }
+  #activity { flex: 1; overflow-y: auto; padding: 0 12px 16px; }
+  .act {
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 9px 11px; margin-bottom: 8px; font-size: 12.5px;
+  }
+  .act.tool { border-left: 3px solid var(--accent); }
+  .act.think { border-left: 3px solid #8957e5; }
+  .act.err { border-left: 3px solid var(--err); }
+  .act .name { font-family: var(--mono); color: var(--accent); font-size: 12px; }
+  .act.think .name { color: #b083f0; }
+  .act.err .name { color: var(--err); }
+  .act .args { color: var(--muted); font-family: var(--mono); font-size: 11.5px; margin-top: 3px; word-break: break-word; }
+  .act pre {
+    margin: 7px 0 0; font-family: var(--mono); font-size: 11px; color: var(--muted);
+    white-space: pre-wrap; word-break: break-word; max-height: 230px; overflow-y: auto;
+  }
+  .act .think-text { color: var(--muted); font-size: 12px; margin-top: 4px; white-space: pre-wrap; }
+  #side .hint { color: var(--muted); font-size: 12.5px; padding: 0 16px 14px; line-height: 1.5; }
+
+  .dots::after {
+    content: ''; animation: dots 1.3s steps(4, end) infinite;
+  }
+  @keyframes dots { 0%{content:''} 25%{content:'.'} 50%{content:'..'} 75%{content:'...'} }
+
+  @media (max-width: 900px) {
+    main { flex-direction: column; }
+    #side { width: auto; max-height: 250px; border-left: 0; border-top: 1px solid var(--border); }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Airport Investment Intelligence</h1>
+  <span class="meta" id="status">connecting…</span>
+  <span class="spacer"></span>
+  <button id="reset">New conversation</button>
+</header>
+
+<main>
+  <div id="chat-col">
+    <div id="messages">
+      <div id="empty">
+        <h2>Where does an airport renovation pay off?</h2>
+        <p>
+          Ranked on BTS T-100 traffic data using deterministic scoring: seat
+          utilisation, structural demand growth, upgauging pressure, and modelled
+          unmet demand. Ask anything, or start here:
+        </p>
+        <div class="examples">
+          <button>Which airports in New England are strong candidates for terminal expansion?</button>
+          <button>Compare LA and Santa Ana airport congestion levels.</button>
+          <button>What is the percentage of long haul flights out of Anchorage airport?</button>
+          <button>What is the unmet flight demand in SFO airport and why?</button>
+        </div>
+      </div>
+    </div>
+    <div id="composer">
+      <div class="inner">
+        <textarea id="input" placeholder="Ask about airport capacity, congestion or expansion candidates…" rows="1"></textarea>
+        <button id="send">Send</button>
+      </div>
+    </div>
+  </div>
+
+  <aside id="side">
+    <h2>Agent activity</h2>
+    <div class="hint" id="side-hint">
+      Tool calls and reasoning appear here, so you can see exactly which data
+      produced each answer. The model never computes figures itself.
+    </div>
+    <div id="activity"></div>
+  </aside>
+</main>
+
+<script>
+const sessionId = 'sess-' + Math.random().toString(36).slice(2);
+const messagesEl = document.getElementById('messages');
+const activityEl = document.getElementById('activity');
+const sideHint   = document.getElementById('side-hint');
+const inputEl    = document.getElementById('input');
+const sendEl     = document.getElementById('send');
+const statusEl   = document.getElementById('status');
+const emptyEl    = document.getElementById('empty');
+let busy = false;
+
+// ---- helpers --------------------------------------------------------------
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, c => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  })[c]);
+}
+
+// Minimal markdown: escape first, then apply a small, closed set of patterns.
+// Deliberately not a full parser -- the model is instructed to answer in prose
+// and simple tables, and a hand-rolled renderer only has to cover that.
+function renderMarkdown(src) {
+  let html = escapeHtml(src);
+  html = html.replace(/```([\s\S]*?)```/g, (_, code) => `<pre><code>${code.trim()}</code></pre>`);
+  html = html.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+  html = html.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+
+  // GitHub-style tables
+  const lines = html.split('\n');
+  const out = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (/^\s*\|.*\|\s*$/.test(lines[i]) && i + 1 < lines.length &&
+        /^\s*\|[\s:|-]+\|\s*$/.test(lines[i + 1])) {
+      const cells = l => l.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim());
+      const head = cells(lines[i]);
+      let j = i + 2;
+      const rows = [];
+      while (j < lines.length && /^\s*\|.*\|\s*$/.test(lines[j])) { rows.push(cells(lines[j])); j++; }
+      out.push('<table><thead><tr>' + head.map(h => `<th>${h}</th>`).join('') +
+               '</tr></thead><tbody>' +
+               rows.map(r => '<tr>' + r.map(c => `<td>${c}</td>`).join('') + '</tr>').join('') +
+               '</tbody></table>');
+      i = j - 1;
+    } else {
+      out.push(lines[i]);
+    }
+  }
+  return out.join('\n');
+}
+
+function addMessage(role, text) {
+  if (emptyEl) emptyEl.style.display = 'none';
+  const div = document.createElement('div');
+  div.className = 'msg ' + role;
+  div.innerHTML = `<div class="role">${role === 'user' ? 'You' : role === 'error' ? 'Error' : 'Analyst'}</div>
+                   <div class="bubble"></div>`;
+  const bubble = div.querySelector('.bubble');
+  if (role === 'assistant') bubble.innerHTML = renderMarkdown(text || '');
+  else bubble.textContent = text;
+  messagesEl.appendChild(div);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+  return bubble;
+}
+
+function addActivity(kind, name, detail, pre) {
+  sideHint.style.display = 'none';
+  const div = document.createElement('div');
+  div.className = 'act ' + kind;
+  let html = `<div class="name">${escapeHtml(name)}</div>`;
+  if (detail) html += `<div class="args">${escapeHtml(detail)}</div>`;
+  if (pre) html += `<pre>${escapeHtml(pre)}</pre>`;
+  div.innerHTML = html;
+  activityEl.appendChild(div);
+  activityEl.scrollTop = activityEl.scrollHeight;
+  return div;
+}
+
+// ---- send -----------------------------------------------------------------
+
+async function send(text) {
+  if (busy || !text.trim()) return;
+  busy = true;
+  sendEl.disabled = true;
+  addMessage('user', text);
+  inputEl.value = '';
+  inputEl.style.height = 'auto';
+
+  const bubble = addMessage('assistant', '');
+  bubble.innerHTML = '<span class="dots">thinking</span>';
+  let answer = '';
+  let started = false;
+  let thinkingCard = null;
+  let thinkingText = '';
+
+  try {
+    const resp = await fetch('/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: text, session_id: sessionId })
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${await resp.text()}`);
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const parts = buffer.split('\n\n');
+      buffer = parts.pop();
+
+      for (const part of parts) {
+        const line = part.trim();
+        if (!line.startsWith('data:')) continue;
+        let ev;
+        try { ev = JSON.parse(line.slice(5).trim()); } catch { continue; }
+
+        if (ev.type === 'text') {
+          if (!started) { bubble.innerHTML = ''; started = true; }
+          answer += ev.text;
+          bubble.innerHTML = renderMarkdown(answer);
+          messagesEl.scrollTop = messagesEl.scrollHeight;
+
+        } else if (ev.type === 'thinking_start') {
+          thinkingText = '';
+          thinkingCard = addActivity('think', 'reasoning', null, null);
+
+        } else if (ev.type === 'thinking') {
+          thinkingText += ev.text;
+          if (thinkingCard) {
+            thinkingCard.innerHTML =
+              `<div class="name">reasoning</div><div class="think-text">${escapeHtml(thinkingText)}</div>`;
+            activityEl.scrollTop = activityEl.scrollHeight;
+          }
+
+        } else if (ev.type === 'tool_start') {
+          addActivity('tool', ev.name + '()', 'running…');
+
+        } else if (ev.type === 'tool_result') {
+          const args = Object.entries(ev.input || {})
+            .map(([k, v]) => `${k}=${JSON.stringify(v)}`).join('  ');
+          addActivity(ev.is_error ? 'err' : 'tool', ev.name + '()', args,
+                      JSON.stringify(ev.result, null, 2));
+
+        } else if (ev.type === 'error') {
+          if (!started) bubble.innerHTML = '';
+          addMessage('error', ev.message);
+          addActivity('err', 'error', ev.message);
+
+        } else if (ev.type === 'done' && ev.usage) {
+          const u = ev.usage;
+          const cached = u.cache_read_input_tokens
+            ? `, ${u.cache_read_input_tokens} cached` : '';
+          statusEl.textContent = `${u.input_tokens} in / ${u.output_tokens} out${cached}`;
+        }
+      }
+    }
+    if (!started && !answer) bubble.innerHTML = '<em style="color:var(--muted)">No response.</em>';
+  } catch (err) {
+    bubble.innerHTML = '';
+    addMessage('error', String(err));
+  } finally {
+    busy = false;
+    sendEl.disabled = false;
+    inputEl.focus();
+  }
+}
+
+// ---- wiring ---------------------------------------------------------------
+
+sendEl.addEventListener('click', () => send(inputEl.value));
+
+inputEl.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(inputEl.value); }
+});
+
+inputEl.addEventListener('input', () => {
+  inputEl.style.height = 'auto';
+  inputEl.style.height = Math.min(inputEl.scrollHeight, 190) + 'px';
+});
+
+document.querySelectorAll('.examples button').forEach(b => {
+  b.addEventListener('click', () => send(b.textContent.trim()));
+});
+
+document.getElementById('reset').addEventListener('click', async () => {
+  await fetch('/reset', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: '', session_id: sessionId })
+  });
+  messagesEl.innerHTML = '';
+  activityEl.innerHTML = '';
+  sideHint.style.display = '';
+  if (emptyEl) { messagesEl.appendChild(emptyEl); emptyEl.style.display = ''; }
+});
+
+fetch('/health').then(r => r.json()).then(h => {
+  const d = h.data || {};
+  statusEl.textContent =
+    `${h.model} · ${d.bts_rows.toLocaleString()} rows · through ${d.latest_month} · ` +
+    `baseline ${d.structural_baseline} · ${h.scoring_version}` +
+    (d.haul_mix_tier_2_enabled ? ' · segments loaded' : '');
+  if (!h.api_key_configured) {
+    // A banner rather than a chat message: addMessage() hides the empty state,
+    // and a first-time visitor still needs the example questions.
+    const warn = document.createElement('div');
+    warn.className = 'banner';
+    warn.textContent =
+      'ANTHROPIC_API_KEY is not set in the server environment. The data layer is ' +
+      'loaded and the tools work, but chat requests will fail until you set the key ' +
+      'and restart the server.';
+    messagesEl.insertBefore(warn, messagesEl.firstChild);
+  }
+}).catch(() => { statusEl.textContent = 'health check failed'; });
+
+inputEl.focus();
+</script>
+</body>
+</html>
