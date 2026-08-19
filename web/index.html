@@ -3,202 +3,666 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <title>Airport Investment Intelligence Agent</title>
 <style>
+  /* ------------------------------------------------------------------ *
+   * Theme tokens.
+   *
+   * Light is the base palette on :root. Dark is redefined twice: once
+   * behind prefers-color-scheme for visitors who never touch the toggle,
+   * and once behind [data-theme] so an explicit choice wins in either
+   * direction.
+   * ------------------------------------------------------------------ */
   :root {
-    --bg: #0f1216;
-    --panel: #161b22;
-    --panel-2: #1c232c;
-    --border: #2a3340;
-    --text: #e6edf3;
-    --muted: #8b98a8;
-    --accent: #4a9eff;
-    --accent-dim: #1e3a5f;
-    --user: #223449;
-    --ok: #3fb950;
-    --warn: #d29922;
-    --err: #f85149;
+    --bg:          #f6f7f9;
+    --bg-tint:     #eef1f6;
+    --surface:     #ffffff;
+    --surface-2:   #f2f4f8;
+    --surface-3:   #e8ecf3;
+    --border:      #dfe4ec;
+    --border-soft: #e9edf3;
+    --text:        #131720;
+    --text-2:      #414b5a;
+    --muted:       #6b7688;
+    --accent:      #1f6feb;
+    --accent-2:    #4a9eff;
+    --accent-soft: #e7f0ff;
+    --on-accent:   #ffffff;
+    --user-bg:     #eaf2ff;
+    --user-border: #cfe0ff;
+    --think:       #7c4dff;
+    --think-soft:  #f0eaff;
+    --ok:          #1a7f37;
+    --warn:        #9a6700;
+    --warn-bg:     #fff8e5;
+    --warn-border: #f0dca4;
+    --err:         #c93c37;
+    --err-bg:      #fdf0ef;
+    --err-border:  #f3c9c6;
+    --shadow-sm:   0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.05);
+    --shadow-md:   0 4px 12px rgba(16,24,40,.07), 0 2px 4px rgba(16,24,40,.04);
+    --shadow-lg:   0 24px 48px -12px rgba(16,24,40,.18);
+    --glow:        radial-gradient(1100px 520px at 50% -18%, rgba(31,111,235,.10), transparent 70%);
     --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --radius: 14px;
   }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg:          #0b0e13;
+      --bg-tint:     #0e131a;
+      --surface:     #11161e;
+      --surface-2:   #161c26;
+      --surface-3:   #1c2430;
+      --border:      #232c3a;
+      --border-soft: #1b232e;
+      --text:        #e7edf5;
+      --text-2:      #b3bfcf;
+      --muted:       #7e8b9d;
+      --accent:      #58a6ff;
+      --accent-2:    #79bbff;
+      --accent-soft: #12233c;
+      --on-accent:   #06101c;
+      --user-bg:     #16243a;
+      --user-border: #23364f;
+      --think:       #b083f0;
+      --think-soft:  #211a35;
+      --ok:          #3fb950;
+      --warn:        #d29922;
+      --warn-bg:     #241c0c;
+      --warn-border: #4a3a12;
+      --err:         #f85149;
+      --err-bg:      #2a1213;
+      --err-border:  #4d1f1f;
+      --shadow-sm:   0 1px 2px rgba(0,0,0,.4);
+      --shadow-md:   0 4px 14px rgba(0,0,0,.45);
+      --shadow-lg:   0 24px 48px -12px rgba(0,0,0,.7);
+      --glow:        radial-gradient(1100px 520px at 50% -18%, rgba(88,166,255,.13), transparent 70%);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg:          #0b0e13;
+    --bg-tint:     #0e131a;
+    --surface:     #11161e;
+    --surface-2:   #161c26;
+    --surface-3:   #1c2430;
+    --border:      #232c3a;
+    --border-soft: #1b232e;
+    --text:        #e7edf5;
+    --text-2:      #b3bfcf;
+    --muted:       #7e8b9d;
+    --accent:      #58a6ff;
+    --accent-2:    #79bbff;
+    --accent-soft: #12233c;
+    --on-accent:   #06101c;
+    --user-bg:     #16243a;
+    --user-border: #23364f;
+    --think:       #b083f0;
+    --think-soft:  #211a35;
+    --ok:          #3fb950;
+    --warn:        #d29922;
+    --warn-bg:     #241c0c;
+    --warn-border: #4a3a12;
+    --err:         #f85149;
+    --err-bg:      #2a1213;
+    --err-border:  #4d1f1f;
+    --shadow-sm:   0 1px 2px rgba(0,0,0,.4);
+    --shadow-md:   0 4px 14px rgba(0,0,0,.45);
+    --shadow-lg:   0 24px 48px -12px rgba(0,0,0,.7);
+    --glow:        radial-gradient(1100px 520px at 50% -18%, rgba(88,166,255,.13), transparent 70%);
+  }
+
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
   body {
     background: var(--bg);
+    background-image: var(--glow);
+    background-repeat: no-repeat;
     color: var(--text);
-    font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    -webkit-font-smoothing: antialiased;
     display: flex; flex-direction: column;
+    overflow: hidden;
   }
+
+  ::selection { background: var(--accent); color: var(--on-accent); }
+
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb {
+    background: var(--border); border-radius: 8px;
+    border: 3px solid transparent; background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover { background: var(--muted); background-clip: content-box; }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  /* ---------------------------------------------------------------- header */
 
   header {
-    padding: 14px 20px; border-bottom: 1px solid var(--border);
-    display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
-    background: var(--panel);
+    position: relative; z-index: 30;
+    padding: 0 20px; height: 60px; flex: 0 0 60px;
+    display: flex; align-items: center; gap: 12px;
+    border-bottom: 1px solid var(--border);
+    background: color-mix(in srgb, var(--surface) 82%, transparent);
+    backdrop-filter: saturate(180%) blur(14px);
   }
-  header h1 { font-size: 16px; margin: 0; font-weight: 600; letter-spacing: -0.01em; }
-  header .meta { font-size: 12px; color: var(--muted); font-family: var(--mono); }
+  .brand { display: flex; align-items: center; gap: 11px; min-width: 0; }
+  .brand .mark {
+    width: 30px; height: 30px; border-radius: 9px; flex: none;
+    display: grid; place-items: center;
+    background: linear-gradient(135deg, var(--accent), var(--think));
+    color: #fff; box-shadow: var(--shadow-sm);
+  }
+  .brand .mark svg { width: 17px; height: 17px; display: block; }
+  .brand h1 {
+    font-size: 15.5px; margin: 0; font-weight: 650; letter-spacing: -0.015em;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
   header .spacer { flex: 1; }
-  header button {
-    background: transparent; border: 1px solid var(--border); color: var(--muted);
-    padding: 5px 12px; border-radius: 6px; cursor: pointer; font-size: 12px;
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 7px;
+    background: var(--surface); border: 1px solid var(--border); color: var(--text-2);
+    height: 34px; padding: 0 12px; border-radius: 9px; cursor: pointer;
+    font: 500 13px/1 inherit; font-family: inherit;
+    transition: background .14s, border-color .14s, color .14s, transform .1s;
+    white-space: nowrap;
   }
-  header button:hover { color: var(--text); border-color: var(--accent); }
+  .btn:hover { color: var(--text); border-color: var(--muted); background: var(--surface-2); }
+  .btn:active { transform: translateY(1px); }
+  .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .btn svg { width: 15px; height: 15px; flex: none; }
+  .btn.icon { width: 34px; padding: 0; justify-content: center; }
 
-  main { flex: 1; display: flex; min-height: 0; }
+  /* activity toggle + its unread badge */
+  #activity-toggle { position: relative; }
+  #activity-toggle.live { border-color: var(--accent); color: var(--accent); }
+  #act-count {
+    display: none; min-width: 18px; height: 18px; padding: 0 5px;
+    border-radius: 9px; background: var(--accent); color: var(--on-accent);
+    font: 650 11px/18px var(--mono); text-align: center;
+  }
+  #act-count.show { display: inline-block; }
 
+  /* theme toggle: two glyphs, only the relevant one is shown */
+  #theme-toggle .sun { display: none; }
+  #theme-toggle .moon { display: block; }
+  :root[data-theme="dark"] #theme-toggle .sun { display: block; }
+  :root[data-theme="dark"] #theme-toggle .moon { display: none; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) #theme-toggle .sun { display: block; }
+    :root:not([data-theme="light"]) #theme-toggle .moon { display: none; }
+  }
+
+  /* ------------------------------------------------------------------ main */
+
+  main { flex: 1; display: flex; min-height: 0; position: relative; }
   #chat-col { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-  #messages { flex: 1; overflow-y: auto; padding: 24px 20px; }
-  .msg { max-width: 780px; margin: 0 auto 22px; }
+  #messages { flex: 1; overflow-y: auto; padding: 30px 20px 8px; scroll-behavior: smooth; }
+  .wrap { max-width: 760px; margin: 0 auto; }
+
+  .msg { max-width: 760px; margin: 0 auto 26px; animation: rise .28s cubic-bezier(.2,.7,.3,1) both; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } }
+
   .msg .role {
-    font-size: 11px; text-transform: uppercase; letter-spacing: 0.09em;
-    color: var(--muted); margin-bottom: 6px; font-weight: 600;
+    display: flex; align-items: center; gap: 7px;
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em;
+    color: var(--muted); margin-bottom: 8px; font-weight: 650;
   }
+  .msg .role .avatar {
+    width: 18px; height: 18px; border-radius: 6px; display: grid; place-items: center;
+    font-size: 9.5px; font-weight: 700; letter-spacing: 0; color: var(--on-accent);
+    background: linear-gradient(135deg, var(--accent), var(--think));
+  }
+  .msg.user .role .avatar { background: var(--surface-3); color: var(--text-2); }
+  .msg.error .role .avatar { background: var(--err); color: #fff; }
+
   .msg.user .bubble {
-    background: var(--user); padding: 11px 15px; border-radius: 10px;
-    border: 1px solid var(--border);
+    background: var(--user-bg); border: 1px solid var(--user-border);
+    padding: 12px 16px; border-radius: var(--radius); border-top-left-radius: 5px;
+    color: var(--text); white-space: pre-wrap;
   }
-  .msg.assistant .bubble { white-space: pre-wrap; }
+  .msg.assistant .bubble { white-space: pre-wrap; color: var(--text); }
+  .msg.assistant .bubble strong { font-weight: 650; color: var(--text); }
   .msg.assistant .bubble table {
-    border-collapse: collapse; margin: 12px 0; font-size: 13.5px; width: 100%;
+    border-collapse: separate; border-spacing: 0; margin: 14px 0; font-size: 13.5px;
+    width: 100%; border: 1px solid var(--border); border-radius: 11px; overflow: hidden;
+    background: var(--surface); box-shadow: var(--shadow-sm); white-space: normal;
   }
   .msg.assistant .bubble th, .msg.assistant .bubble td {
-    border: 1px solid var(--border); padding: 6px 10px; text-align: left;
+    padding: 9px 13px; text-align: left; border-bottom: 1px solid var(--border-soft);
   }
-  .msg.assistant .bubble th { background: var(--panel-2); font-weight: 600; }
+  .msg.assistant .bubble th {
+    background: var(--surface-2); font-weight: 650; font-size: 12px;
+    text-transform: uppercase; letter-spacing: .05em; color: var(--muted);
+  }
+  .msg.assistant .bubble tbody tr:last-child td { border-bottom: 0; }
+  .msg.assistant .bubble tbody tr:hover td { background: var(--surface-2); }
   .msg.assistant .bubble code {
-    font-family: var(--mono); font-size: 13px;
-    background: var(--panel-2); padding: 1px 5px; border-radius: 4px;
+    font-family: var(--mono); font-size: 12.5px;
+    background: var(--surface-2); border: 1px solid var(--border-soft);
+    padding: 1px 5px; border-radius: 5px;
   }
+  .msg.assistant .bubble pre {
+    background: var(--surface-2); border: 1px solid var(--border);
+    padding: 12px 14px; border-radius: 10px; overflow-x: auto;
+  }
+  .msg.assistant .bubble pre code { background: none; border: 0; padding: 0; }
   .msg.error .bubble {
-    border: 1px solid var(--err); color: #ffc9c4; background: #2d1414;
-    padding: 11px 15px; border-radius: 10px;
+    border: 1px solid var(--err-border); background: var(--err-bg); color: var(--err);
+    padding: 12px 16px; border-radius: var(--radius);
   }
+
+  .table-scroll { overflow-x: auto; }
 
   .banner {
-    max-width: 780px; margin: 0 auto 20px; padding: 11px 15px; border-radius: 9px;
-    border: 1px solid var(--warn); background: #2b2211; color: #f0d9a0; font-size: 13.5px;
+    max-width: 760px; margin: 0 auto 22px; padding: 12px 16px; border-radius: 11px;
+    border: 1px solid var(--warn-border); background: var(--warn-bg); color: var(--warn);
+    font-size: 13.5px; display: flex; gap: 10px; align-items: flex-start;
+  }
+  .banner svg { width: 17px; height: 17px; flex: none; margin-top: 2px; }
+
+  /* ----------------------------------------------------------- empty state
+   *
+   * The landing screen must fit the viewport whole -- an example card you have
+   * to scroll to find may as well not be there. So while it is showing, the
+   * message list does not scroll at all, and the block's vertical rhythm is
+   * expressed in vh: every gap and type size shrinks toward its floor on a
+   * short window and opens back up on a tall one.
+   */
+
+  body.landing #messages {
+    overflow: hidden; display: grid; place-items: center;
+    padding-top: clamp(10px, 2vh, 26px); padding-bottom: clamp(8px, 1.6vh, 18px);
+  }
+  body.landing #empty { margin: 0; width: 100%; }
+
+  #empty { max-width: 760px; margin: 4vh auto 0; }
+  #empty .eyebrow {
+    display: inline-flex; align-items: center; gap: 7px;
+    margin-bottom: clamp(9px, 2vh, 16px);
+    font: 650 11px/1 inherit; text-transform: uppercase; letter-spacing: .11em;
+    color: var(--accent); background: var(--accent-soft);
+    border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+    padding: 6px 11px; border-radius: 999px;
+  }
+  #empty .eyebrow .pulse {
+    width: 6px; height: 6px; border-radius: 50%; background: var(--accent);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 60%, transparent);
+    animation: pulse 2.4s ease-out infinite;
+  }
+  @keyframes pulse {
+    70%  { box-shadow: 0 0 0 7px transparent; }
+    100% { box-shadow: 0 0 0 0 transparent; }
+  }
+  #empty h2 {
+    color: var(--text); font-size: clamp(23px, 3.7vh, 32px); line-height: 1.18;
+    margin: 0 0 clamp(8px, 1.5vh, 12px);
+    font-weight: 680; letter-spacing: -0.028em; max-width: 17ch;
+  }
+  #empty h2 .grad {
+    background: linear-gradient(100deg, var(--accent), var(--think));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  #empty p {
+    margin: 0 0 clamp(13px, 2.8vh, 26px); font-size: clamp(13px, 1.75vh, 14.5px);
+    line-height: 1.5; color: var(--muted); max-width: 62ch;
   }
 
-  #empty { max-width: 780px; margin: 40px auto; color: var(--muted); }
-  #empty h2 { color: var(--text); font-size: 19px; margin: 0 0 8px; font-weight: 600; }
-  #empty p { margin: 0 0 22px; font-size: 14px; }
-  .examples { display: grid; gap: 9px; }
+  .stats {
+    display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 clamp(12px, 2.5vh, 26px);
+  }
+  .stat {
+    display: flex; align-items: baseline; gap: 6px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 9px; padding: 7px 11px; box-shadow: var(--shadow-sm);
+  }
+  .stat b { font: 650 13px/1 var(--mono); color: var(--text); }
+  .stat span { font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+
+  .examples-label {
+    font: 650 11px/1 inherit; text-transform: uppercase; letter-spacing: .1em;
+    color: var(--muted); margin-bottom: clamp(7px, 1.5vh, 11px);
+  }
+  .examples { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(7px, 1.4vh, 10px); }
   .examples button {
-    text-align: left; background: var(--panel); border: 1px solid var(--border);
-    color: var(--text); padding: 12px 15px; border-radius: 9px; cursor: pointer;
-    font-size: 14px; font-family: inherit; transition: border-color .12s, background .12s;
+    position: relative; text-align: left; overflow: hidden;
+    background: var(--surface); border: 1px solid var(--border);
+    color: var(--text); border-radius: 12px; cursor: pointer;
+    padding: clamp(10px, 1.9vh, 14px) 40px clamp(10px, 1.9vh, 14px) 16px;
+    font: clamp(13px, 1.7vh, 14px)/1.45 inherit; box-shadow: var(--shadow-sm);
+    transition: border-color .15s, box-shadow .15s, transform .15s, background .15s;
   }
-  .examples button:hover { border-color: var(--accent); background: var(--panel-2); }
+  .examples button::after {
+    content: '→'; position: absolute; right: 15px; top: 50%; transform: translateY(-50%);
+    color: var(--muted); font-size: 15px; transition: transform .18s, color .18s;
+  }
+  .examples button:hover {
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+    box-shadow: var(--shadow-md); transform: translateY(-2px); background: var(--surface);
+  }
+  .examples button:hover::after { color: var(--accent); transform: translate(3px, -50%); }
+  .examples button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .examples .tag {
+    display: block; font: 650 10.5px/1 inherit; letter-spacing: .09em;
+    text-transform: uppercase; color: var(--accent); margin-bottom: clamp(4px, .9vh, 7px);
+  }
 
-  #composer {
-    border-top: 1px solid var(--border); padding: 14px 20px; background: var(--panel);
+  /* ------------------------------------------------------------- composer */
+
+  #composer { padding: 10px 20px 20px; }
+  #composer .inner {
+    max-width: 760px; margin: 0 auto; display: flex; gap: 9px; align-items: flex-end;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 16px; padding: 8px 8px 8px 6px; box-shadow: var(--shadow-md);
+    transition: border-color .15s, box-shadow .15s;
   }
-  #composer .inner { max-width: 780px; margin: 0 auto; display: flex; gap: 10px; }
+  #composer .inner:focus-within {
+    border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+    box-shadow: var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--accent) 13%, transparent);
+  }
   #input {
-    flex: 1; resize: none; background: var(--bg); color: var(--text);
-    border: 1px solid var(--border); border-radius: 9px; padding: 11px 14px;
-    font: inherit; min-height: 46px; max-height: 190px;
+    flex: 1; resize: none; background: transparent; color: var(--text);
+    border: 0; padding: 10px 8px 10px 12px;
+    font: inherit; line-height: 1.5; min-height: 42px; max-height: 190px;
   }
-  #input:focus { outline: none; border-color: var(--accent); }
+  #input:focus { outline: none; }
+  #input::placeholder { color: var(--muted); }
   #send {
-    background: var(--accent); border: 0; color: #06101c; font-weight: 650;
-    padding: 0 22px; border-radius: 9px; cursor: pointer; font-size: 14px;
+    flex: none; width: 42px; height: 42px; border-radius: 11px; border: 0;
+    background: var(--accent); color: var(--on-accent); cursor: pointer;
+    display: grid; place-items: center;
+    transition: opacity .15s, transform .1s, background .15s;
   }
-  #send:disabled { opacity: .45; cursor: not-allowed; }
+  #send svg { width: 18px; height: 18px; }
+  #send:hover:not(:disabled) { background: var(--accent-2); }
+  #send:active:not(:disabled) { transform: scale(.94); }
+  #send:disabled { opacity: .4; cursor: not-allowed; }
 
-  /* activity sidebar */
+  /* ------------------------------------------------- activity side drawer */
+
+  #scrim {
+    position: fixed; inset: 0; z-index: 40; background: rgba(8,11,16,.42);
+    opacity: 0; pointer-events: none; transition: opacity .22s ease;
+    backdrop-filter: blur(1px);
+  }
+  body.act-open #scrim { opacity: 1; pointer-events: auto; }
+
   #side {
-    width: 350px; border-left: 1px solid var(--border); background: var(--panel);
+    position: fixed; top: 0; right: 0; z-index: 50;
+    width: min(400px, 92vw); height: 100%;
+    background: var(--surface); border-left: 1px solid var(--border);
+    box-shadow: var(--shadow-lg);
     display: flex; flex-direction: column; min-height: 0;
+    transform: translateX(100%);
+    visibility: hidden;
+    transition: transform .28s cubic-bezier(.32,.72,.24,1), visibility 0s linear .28s;
+    will-change: transform;
   }
-  #side h2 {
-    font-size: 11px; text-transform: uppercase; letter-spacing: 0.09em;
-    color: var(--muted); margin: 0; padding: 14px 16px 10px; font-weight: 600;
+  body.act-open #side {
+    transform: translateX(0); visibility: visible;
+    transition: transform .28s cubic-bezier(.32,.72,.24,1), visibility 0s;
   }
-  #activity { flex: 1; overflow-y: auto; padding: 0 12px 16px; }
+
+  #side header {
+    all: unset;
+    display: flex; align-items: center; gap: 9px;
+    padding: 0 12px 0 18px; height: 60px; flex: none;
+    border-bottom: 1px solid var(--border); background: var(--surface);
+  }
+  #side header h2 {
+    font-size: 13px; font-weight: 650; margin: 0; letter-spacing: -.01em; color: var(--text);
+    display: flex; align-items: center; gap: 8px;
+  }
+  #side header h2 .dot {
+    width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex: none;
+  }
+  body.agent-busy #side header h2 .dot { background: var(--ok); animation: pulse 1.6s ease-out infinite; }
+  #side header .spacer { flex: 1; }
+
+  #activity { flex: 1; overflow-y: auto; padding: 14px; }
+
+  .side-hint {
+    color: var(--muted); font-size: 13px; line-height: 1.55;
+    background: var(--surface-2); border: 1px dashed var(--border);
+    border-radius: 12px; padding: 14px 15px;
+  }
+  .side-hint b { color: var(--text-2); font-weight: 600; }
+
   .act {
-    background: var(--panel-2); border: 1px solid var(--border);
-    border-radius: 8px; padding: 9px 11px; margin-bottom: 8px; font-size: 12.5px;
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 11px; padding: 11px 13px; margin-bottom: 9px; font-size: 12.5px;
+    animation: rise .25s cubic-bezier(.2,.7,.3,1) both;
   }
-  .act.tool { border-left: 3px solid var(--accent); }
-  .act.think { border-left: 3px solid #8957e5; }
-  .act.err { border-left: 3px solid var(--err); }
-  .act .name { font-family: var(--mono); color: var(--accent); font-size: 12px; }
-  .act.think .name { color: #b083f0; }
+  .act.tool  { border-left: 3px solid var(--accent); }
+  .act.think { border-left: 3px solid var(--think); background: var(--think-soft); }
+  .act.err   { border-left: 3px solid var(--err); background: var(--err-bg); }
+  .act .name {
+    font-family: var(--mono); color: var(--accent); font-size: 12px; font-weight: 600;
+    display: flex; align-items: center; gap: 6px; word-break: break-word;
+  }
+  .act.think .name { color: var(--think); }
   .act.err .name { color: var(--err); }
-  .act .args { color: var(--muted); font-family: var(--mono); font-size: 11.5px; margin-top: 3px; word-break: break-word; }
+  .act .args {
+    color: var(--muted); font-family: var(--mono); font-size: 11.5px;
+    margin-top: 5px; word-break: break-word;
+  }
   .act pre {
-    margin: 7px 0 0; font-family: var(--mono); font-size: 11px; color: var(--muted);
-    white-space: pre-wrap; word-break: break-word; max-height: 230px; overflow-y: auto;
+    margin: 9px 0 0; font-family: var(--mono); font-size: 11px; color: var(--text-2);
+    white-space: pre-wrap; word-break: break-word; max-height: 240px; overflow-y: auto;
+    background: var(--surface); border: 1px solid var(--border-soft);
+    border-radius: 8px; padding: 9px 10px;
   }
-  .act .think-text { color: var(--muted); font-size: 12px; margin-top: 4px; white-space: pre-wrap; }
-  #side .hint { color: var(--muted); font-size: 12.5px; padding: 0 16px 14px; line-height: 1.5; }
+  .act .think-text { color: var(--text-2); font-size: 12px; margin-top: 5px; white-space: pre-wrap; }
+  .act .spin {
+    width: 11px; height: 11px; border-radius: 50%; flex: none;
+    border: 2px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    border-top-color: var(--accent); animation: spin .7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
 
-  .dots::after {
-    content: ''; animation: dots 1.3s steps(4, end) infinite;
+  #side-foot {
+    flex: none; border-top: 1px solid var(--border); padding: 11px 16px;
+    font: 11px/1.6 var(--mono); color: var(--muted); background: var(--surface);
+    word-break: break-word;
   }
+
+  .dots::after { content: ''; animation: dots 1.3s steps(4, end) infinite; }
   @keyframes dots { 0%{content:''} 25%{content:'.'} 50%{content:'..'} 75%{content:'...'} }
+  .thinking-line { color: var(--muted); display: inline-flex; align-items: center; gap: 8px; }
+  .thinking-line .spin {
+    width: 12px; height: 12px; border-radius: 50%;
+    border: 2px solid color-mix(in srgb, var(--accent) 28%, transparent);
+    border-top-color: var(--accent); animation: spin .7s linear infinite;
+  }
 
-  @media (max-width: 900px) {
-    main { flex-direction: column; }
-    #side { width: auto; max-height: 250px; border-left: 0; border-top: 1px solid var(--border); }
+  /* Short windows: the vh clamps bottom out, so past each threshold the landing
+     sheds an optional row rather than clipping a card. Below 480px nothing fits
+     honestly any more and scrolling comes back. */
+  @media (max-height: 700px) { body.landing .examples-label { display: none; } }
+  @media (max-height: 660px) { body.landing .stats { display: none; } }
+  @media (max-height: 480px) {
+    body.landing #messages { overflow-y: auto; display: block; }
+    body.landing #empty { margin: 0 auto; }
+  }
+
+  @media (max-width: 720px) {
+    header { padding: 0 12px; gap: 8px; }
+    .btn .label { display: none; }
+    .btn { padding: 0 10px; }
+    #messages { padding: 20px 14px 8px; }
+    #composer { padding: 8px 14px 14px; }
+    #empty h2 { font-size: 25px; max-width: none; }
+    .examples { grid-template-columns: 1fr; }
+    /* One column on a phone is taller than any phone: scrolling comes back
+       rather than clipping the last card. */
+    body.landing #messages {
+      overflow-y: auto; display: block; padding-top: 20px;
+    }
+    body.landing #empty { margin: 0 auto; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
   }
 </style>
 </head>
-<body>
+<body class="landing">
 
 <header>
-  <h1>Airport Investment Intelligence</h1>
-  <span class="meta" id="status">connecting…</span>
+  <div class="brand">
+    <div class="mark" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5L21 16z"/></svg>
+    </div>
+    <h1>Airport Investment Intelligence</h1>
+  </div>
+
   <span class="spacer"></span>
-  <button id="reset">New conversation</button>
+
+  <button class="btn icon" id="theme-toggle" title="Toggle light / dark" aria-label="Toggle light or dark theme">
+    <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+    <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+  </button>
+
+  <button class="btn" id="reset" title="Start a new conversation">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+    <span class="label">New chat</span>
+  </button>
+
+  <button class="btn" id="activity-toggle" aria-expanded="false" aria-controls="side" title="Show agent activity">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2.5 7 5-16L17.5 12H21"/></svg>
+    <span class="label">Activity</span>
+    <span id="act-count">0</span>
+  </button>
 </header>
 
 <main>
   <div id="chat-col">
     <div id="messages">
       <div id="empty">
-        <h2>Where does an airport renovation pay off?</h2>
+        <div class="eyebrow"><span class="pulse"></span> BTS T-100 · deterministic scoring</div>
+        <h2>Where does an airport renovation <span class="grad">pay off?</span></h2>
         <p>
-          Ranked on BTS T-100 traffic data using deterministic scoring: seat
-          utilisation, structural demand growth, upgauging pressure, and modelled
-          unmet demand. Ask anything, or start here:
+          Ranked on BTS traffic data by deterministic scoring: seat utilisation, structural
+          demand growth, upgauging pressure, and modelled unmet demand. Every figure comes
+          from a tool call, never from the model.
         </p>
+        <div class="stats" id="stats" hidden></div>
+        <div class="examples-label">Start here</div>
         <div class="examples">
-          <button>Which airports in New England are strong candidates for terminal expansion?</button>
-          <button>Compare LA and Santa Ana airport congestion levels.</button>
-          <button>What is the percentage of long haul flights out of Anchorage airport?</button>
-          <button>What is the unmet flight demand in SFO airport and why?</button>
+          <button><span class="tag">Expansion</span>Which airports in New England are strong candidates for terminal expansion?</button>
+          <button><span class="tag">Compare</span>Compare LA and Santa Ana airport congestion levels.</button>
+          <button><span class="tag">Haul mix</span>What is the percentage of long haul flights out of Anchorage airport?</button>
+          <button><span class="tag">Demand</span>What is the unmet flight demand in SFO airport and why?</button>
         </div>
       </div>
     </div>
+
     <div id="composer">
       <div class="inner">
         <textarea id="input" placeholder="Ask about airport capacity, congestion or expansion candidates…" rows="1"></textarea>
-        <button id="send">Send</button>
+        <button id="send" aria-label="Send message">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12h14M12.5 5.5 19 12l-6.5 6.5"/></svg>
+        </button>
       </div>
     </div>
   </div>
-
-  <aside id="side">
-    <h2>Agent activity</h2>
-    <div class="hint" id="side-hint">
-      Tool calls and reasoning appear here, so you can see exactly which data
-      produced each answer. The model never computes figures itself.
-    </div>
-    <div id="activity"></div>
-  </aside>
 </main>
 
+<div id="scrim"></div>
+
+<aside id="side" aria-hidden="true" aria-label="Agent activity">
+  <header>
+    <h2><span class="dot"></span> Agent activity</h2>
+    <span class="spacer"></span>
+    <button class="btn icon" id="act-clear" title="Clear activity log" aria-label="Clear activity log">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9.5 7V5h5v2M6.5 7l.8 12h9.4l.8-12"/></svg>
+    </button>
+    <button class="btn icon" id="act-close" title="Close panel" aria-label="Close activity panel">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </header>
+
+  <div id="activity">
+    <div class="side-hint" id="side-hint">
+      Tool calls and reasoning appear here, so you can see exactly which data produced
+      each answer. <b>The model never computes figures itself.</b>
+    </div>
+  </div>
+
+  <div id="side-foot">connecting…</div>
+</aside>
+
 <script>
-const sessionId = 'sess-' + Math.random().toString(36).slice(2);
+const sessionId  = 'sess-' + Math.random().toString(36).slice(2);
 const messagesEl = document.getElementById('messages');
 const activityEl = document.getElementById('activity');
 const sideHint   = document.getElementById('side-hint');
 const inputEl    = document.getElementById('input');
 const sendEl     = document.getElementById('send');
-const statusEl   = document.getElementById('status');
 const emptyEl    = document.getElementById('empty');
+const footEl     = document.getElementById('side-foot');
+const toggleEl   = document.getElementById('activity-toggle');
+const countEl    = document.getElementById('act-count');
 let busy = false;
+let unseen = 0;
+
+// ---- theme ----------------------------------------------------------------
+// Stored preference wins; with nothing stored we leave the attribute off and
+// let prefers-color-scheme drive the tokens.
+
+// localStorage throws in some hardened/embedded contexts; a theme preference is
+// not worth taking the rest of the UI down for.
+function readTheme() {
+  try { return localStorage.getItem('aiia-theme'); } catch { return null; }
+}
+function writeTheme(v) {
+  try { localStorage.setItem('aiia-theme', v); } catch {}
+}
+
+const stored = readTheme();
+if (stored === 'light' || stored === 'dark') {
+  document.documentElement.setAttribute('data-theme', stored);
+}
+
+function currentTheme() {
+  return document.documentElement.getAttribute('data-theme')
+      || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+}
+
+document.getElementById('theme-toggle').addEventListener('click', () => {
+  const next = currentTheme() === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  writeTheme(next);
+});
+
+// ---- activity drawer ------------------------------------------------------
+
+function setDrawer(open) {
+  document.body.classList.toggle('act-open', open);
+  document.getElementById('side').setAttribute('aria-hidden', String(!open));
+  toggleEl.setAttribute('aria-expanded', String(open));
+  if (open) {
+    unseen = 0;
+    countEl.classList.remove('show');
+    toggleEl.classList.remove('live');
+    activityEl.scrollTop = activityEl.scrollHeight;
+  }
+}
+function drawerOpen() { return document.body.classList.contains('act-open'); }
+
+toggleEl.addEventListener('click', () => setDrawer(!drawerOpen()));
+document.getElementById('act-close').addEventListener('click', () => setDrawer(false));
+document.getElementById('scrim').addEventListener('click', () => setDrawer(false));
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && drawerOpen()) setDrawer(false);
+});
+document.getElementById('act-clear').addEventListener('click', () => {
+  activityEl.innerHTML = '';
+  activityEl.appendChild(sideHint);
+  sideHint.style.display = '';
+});
 
 // ---- helpers --------------------------------------------------------------
 
@@ -228,23 +692,32 @@ function renderMarkdown(src) {
       let j = i + 2;
       const rows = [];
       while (j < lines.length && /^\s*\|.*\|\s*$/.test(lines[j])) { rows.push(cells(lines[j])); j++; }
-      out.push('<table><thead><tr>' + head.map(h => `<th>${h}</th>`).join('') +
+      out.push('<div class="table-scroll"><table><thead><tr>' +
+               head.map(h => `<th>${h}</th>`).join('') +
                '</tr></thead><tbody>' +
                rows.map(r => '<tr>' + r.map(c => `<td>${c}</td>`).join('') + '</tr>').join('') +
-               '</tbody></table>');
+               '</tbody></table></div>');
       i = j - 1;
     } else {
       out.push(lines[i]);
     }
   }
-  return out.join('\n');
+  // The bubble is white-space: pre-wrap, so newlines either side of the block
+  // table wrapper would stack on top of the table's own margins.
+  return out.join('\n')
+            .replace(/\n+(<div class="table-scroll">)/g, '$1')
+            .replace(/(<\/table><\/div>)\n+/g, '$1');
 }
 
 function addMessage(role, text) {
   if (emptyEl) emptyEl.style.display = 'none';
+  document.body.classList.remove('landing');   // the transcript scrolls again
+  const label  = role === 'user' ? 'You' : role === 'error' ? 'Error' : 'Analyst';
+  // No badge on the user side -- "YOU You" read as a stutter.
+  const avatar = role === 'user' ? '' : role === 'error' ? '!' : 'AI';
   const div = document.createElement('div');
   div.className = 'msg ' + role;
-  div.innerHTML = `<div class="role">${role === 'user' ? 'You' : role === 'error' ? 'Error' : 'Analyst'}</div>
+  div.innerHTML = `<div class="role">${avatar ? `<span class="avatar">${avatar}</span>` : ''}${label}</div>
                    <div class="bubble"></div>`;
   const bubble = div.querySelector('.bubble');
   if (role === 'assistant') bubble.innerHTML = renderMarkdown(text || '');
@@ -254,16 +727,24 @@ function addMessage(role, text) {
   return bubble;
 }
 
-function addActivity(kind, name, detail, pre) {
+function addActivity(kind, name, detail, pre, spinning) {
   sideHint.style.display = 'none';
   const div = document.createElement('div');
   div.className = 'act ' + kind;
-  let html = `<div class="name">${escapeHtml(name)}</div>`;
+  let html = `<div class="name">${spinning ? '<span class="spin"></span>' : ''}${escapeHtml(name)}</div>`;
   if (detail) html += `<div class="args">${escapeHtml(detail)}</div>`;
   if (pre) html += `<pre>${escapeHtml(pre)}</pre>`;
   div.innerHTML = html;
   activityEl.appendChild(div);
-  activityEl.scrollTop = activityEl.scrollHeight;
+  if (drawerOpen()) {
+    activityEl.scrollTop = activityEl.scrollHeight;
+  } else {
+    // Closed drawer: surface the count on the toggle instead of stealing focus.
+    unseen++;
+    countEl.textContent = unseen > 99 ? '99+' : unseen;
+    countEl.classList.add('show');
+    toggleEl.classList.add('live');
+  }
   return div;
 }
 
@@ -273,12 +754,13 @@ async function send(text) {
   if (busy || !text.trim()) return;
   busy = true;
   sendEl.disabled = true;
+  document.body.classList.add('agent-busy');
   addMessage('user', text);
   inputEl.value = '';
   inputEl.style.height = 'auto';
 
   const bubble = addMessage('assistant', '');
-  bubble.innerHTML = '<span class="dots">thinking</span>';
+  bubble.innerHTML = '<span class="thinking-line"><span class="spin"></span><span class="dots">thinking</span></span>';
   let answer = '';
   let started = false;
   let thinkingCard = null;
@@ -317,18 +799,18 @@ async function send(text) {
 
         } else if (ev.type === 'thinking_start') {
           thinkingText = '';
-          thinkingCard = addActivity('think', 'reasoning', null, null);
+          thinkingCard = addActivity('think', 'reasoning', null, null, true);
 
         } else if (ev.type === 'thinking') {
           thinkingText += ev.text;
           if (thinkingCard) {
             thinkingCard.innerHTML =
               `<div class="name">reasoning</div><div class="think-text">${escapeHtml(thinkingText)}</div>`;
-            activityEl.scrollTop = activityEl.scrollHeight;
+            if (drawerOpen()) activityEl.scrollTop = activityEl.scrollHeight;
           }
 
         } else if (ev.type === 'tool_start') {
-          addActivity('tool', ev.name + '()', 'running…');
+          addActivity('tool', ev.name + '()', 'running…', null, true);
 
         } else if (ev.type === 'tool_result') {
           const args = Object.entries(ev.input || {})
@@ -344,8 +826,9 @@ async function send(text) {
         } else if (ev.type === 'done' && ev.usage) {
           const u = ev.usage;
           const cached = u.cache_read_input_tokens
-            ? `, ${u.cache_read_input_tokens} cached` : '';
-          statusEl.textContent = `${u.input_tokens} in / ${u.output_tokens} out${cached}`;
+            ? ` · ${u.cache_read_input_tokens} cached` : '';
+          addActivity('tool', 'usage',
+            `${u.input_tokens} in / ${u.output_tokens} out${cached}`);
         }
       }
     }
@@ -356,6 +839,7 @@ async function send(text) {
   } finally {
     busy = false;
     sendEl.disabled = false;
+    document.body.classList.remove('agent-busy');
     inputEl.focus();
   }
 }
@@ -368,45 +852,96 @@ inputEl.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(inputEl.value); }
 });
 
+// The full prompt wraps to two lines on a phone, which the one-row composer clips.
+const narrow = matchMedia('(max-width: 720px)');
+const setPlaceholder = () => {
+  inputEl.placeholder = narrow.matches
+    ? 'Ask about an airport…'
+    : 'Ask about airport capacity, congestion or expansion candidates…';
+};
+narrow.addEventListener('change', setPlaceholder);
+setPlaceholder();
+
 inputEl.addEventListener('input', () => {
   inputEl.style.height = 'auto';
   inputEl.style.height = Math.min(inputEl.scrollHeight, 190) + 'px';
 });
 
 document.querySelectorAll('.examples button').forEach(b => {
-  b.addEventListener('click', () => send(b.textContent.trim()));
+  // The tag is a label, not part of the question.
+  const q = b.childNodes[b.childNodes.length - 1].textContent.trim();
+  b.addEventListener('click', () => send(q));
 });
 
 document.getElementById('reset').addEventListener('click', async () => {
-  await fetch('/reset', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message: '', session_id: sessionId })
-  });
+  // Clear the view whatever the server says: a failed reset call must not
+  // leave the user stuck looking at a transcript they asked to dismiss.
+  try {
+    await fetch('/reset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: '', session_id: sessionId })
+    });
+  } catch {}
   messagesEl.innerHTML = '';
   activityEl.innerHTML = '';
+  activityEl.appendChild(sideHint);
   sideHint.style.display = '';
-  if (emptyEl) { messagesEl.appendChild(emptyEl); emptyEl.style.display = ''; }
+  unseen = 0;
+  countEl.classList.remove('show');
+  toggleEl.classList.remove('live');
+  if (emptyEl) {
+    messagesEl.appendChild(emptyEl);
+    emptyEl.style.display = '';
+    document.body.classList.add('landing');
+  }
 });
+
+// ---- health ---------------------------------------------------------------
 
 fetch('/health').then(r => r.json()).then(h => {
   const d = h.data || {};
-  statusEl.textContent =
-    `${h.model} · ${d.bts_rows.toLocaleString()} rows · through ${d.latest_month} · ` +
-    `baseline ${d.structural_baseline} · ${h.scoring_version}` +
+  const rows = (d.bts_rows || 0).toLocaleString();
+
+  footEl.textContent =
+    `${h.model} · ${rows} rows · through ${d.latest_month} · ${h.scoring_version}` +
     (d.haul_mix_tier_2_enabled ? ' · segments loaded' : '');
+
+  // The headline numbers belong with the pitch, not crammed into the header.
+  const statsEl = document.getElementById('stats');
+  if (statsEl && h.status === 'ok') {
+    const items = [
+      [rows, 'BTS rows'],
+      [d.latest_month, 'through'],
+      [(d.airports_reference || 0).toLocaleString(), 'airports'],
+      [h.scoring_version, 'scoring'],
+    ].filter(([v]) => v !== undefined && v !== null && v !== '');
+    statsEl.innerHTML = items
+      .map(([v, k]) => `<div class="stat"><b>${escapeHtml(String(v))}</b><span>${k}</span></div>`)
+      .join('');
+    statsEl.hidden = false;
+  }
+
   if (!h.api_key_configured) {
     // A banner rather than a chat message: addMessage() hides the empty state,
     // and a first-time visitor still needs the example questions.
     const warn = document.createElement('div');
     warn.className = 'banner';
-    warn.textContent =
+    warn.innerHTML =
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+      'stroke-linecap="round" stroke-linejoin="round">' +
+      '<path d="M12 9v5M12 17.5v.01M10.3 3.9 2.6 17.2A2 2 0 0 0 4.3 20h15.4a2 2 0 0 0 1.7-2.8' +
+      'L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg><span></span>';
+    warn.querySelector('span').textContent =
       'ANTHROPIC_API_KEY is not set in the server environment. The data layer is ' +
       'loaded and the tools work, but chat requests will fail until you set the key ' +
       'and restart the server.';
     messagesEl.insertBefore(warn, messagesEl.firstChild);
+    // The banner is extra height the no-scroll landing layout did not budget
+    // for, so hand scrolling back rather than clipping the examples.
+    document.body.classList.remove('landing');
   }
-}).catch(() => { statusEl.textContent = 'health check failed'; });
+}).catch(() => { footEl.textContent = 'health check failed'; });
 
 inputEl.focus();
 </script>
