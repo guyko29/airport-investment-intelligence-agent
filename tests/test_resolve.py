@@ -10,19 +10,17 @@ from __future__ import annotations
 
 import pytest
 
-from app import config
-from app.data import airports as airports_data
-from app.data import bts
+from app import airports, config, store
 
 pytestmark = pytest.mark.skipif(
-    not bts.is_populated(),
-    reason="local cache not populated; run python -m app.data.bts --refresh",
+    not store.bts_populated(),
+    reason="local cache not populated; run python -m app.ingest --source all",
 )
 
 
 @pytest.fixture(scope="module")
 def con():
-    connection = bts.connect()
+    connection = store.connect()
     yield connection
     connection.close()
 
@@ -47,12 +45,12 @@ def con():
     ],
 )
 def test_resolves_exam_style_references(con, query, expected):
-    assert airports_data.resolve(con, query).code == expected
+    assert airports.resolve(con, query).code == expected
 
 
 def test_metro_query_surfaces_its_alternatives(con):
     """'LA' must not silently become LAX -- the answer depends on which airport."""
-    resolved = airports_data.resolve(con, "LA")
+    resolved = airports.resolve(con, "LA")
     assert resolved.code == "LAX"
     assert resolved.how == "metro_alias"
     alt_codes = {a["code"] for a in resolved.alternatives}
@@ -61,32 +59,32 @@ def test_metro_query_surfaces_its_alternatives(con):
 
 
 def test_single_airport_metro_has_no_spurious_alternatives(con):
-    resolved = airports_data.resolve(con, "Santa Ana")
+    resolved = airports.resolve(con, "Santa Ana")
     assert resolved.code == "SNA"
     assert resolved.alternatives == []
 
 
 def test_unresolvable_query_fails_with_guidance_rather_than_a_guess(con):
-    resolved = airports_data.resolve(con, "Nowheresville")
+    resolved = airports.resolve(con, "Nowheresville")
     assert not resolved.ok
     assert resolved.code is None
     assert resolved.note and "IATA" in resolved.note
 
 
 def test_empty_query_is_handled(con):
-    assert not airports_data.resolve(con, "").ok
-    assert not airports_data.resolve(con, "   ").ok
+    assert not airports.resolve(con, "").ok
+    assert not airports.resolve(con, "   ").ok
 
 
 def test_resolution_serialises_for_tool_output(con):
-    payload = airports_data.resolve(con, "LA").to_dict()
+    payload = airports.resolve(con, "LA").to_dict()
     for key in ("query", "code", "name", "matched_by"):
         assert key in payload
 
 
 def test_airport_suffixes_are_stripped(con):
-    assert airports_data.resolve(con, "Anchorage airport").code == "ANC"
-    assert airports_data.resolve(con, "Boston.").code == "BOS"
+    assert airports.resolve(con, "Anchorage airport").code == "ANC"
+    assert airports.resolve(con, "Boston.").code == "BOS"
 
 
 # ---------------------------------------------------------------------------
@@ -94,7 +92,7 @@ def test_airport_suffixes_are_stripped(con):
 # ---------------------------------------------------------------------------
 
 def test_new_england_maps_to_its_six_states():
-    states, label = airports_data.resolve_region("New England")
+    states, label = airports.resolve_region("New England")
     assert set(states) == {"ME", "NH", "VT", "MA", "RI", "CT"}
     assert label == "New England"
 
@@ -103,32 +101,32 @@ def test_new_england_maps_to_its_six_states():
     "query", ["new england", "New England", "NEW ENGLAND", "new-england", "New England region"]
 )
 def test_region_lookup_is_forgiving_about_form(query):
-    assert airports_data.resolve_region(query) is not None
+    assert airports.resolve_region(query) is not None
 
 
 def test_unknown_region_returns_none_rather_than_an_empty_result():
-    assert airports_data.resolve_region("Atlantis") is None
+    assert airports.resolve_region("Atlantis") is None
 
 
 def test_new_england_airports_include_the_expected_commercial_fields(con):
-    states, _ = airports_data.resolve_region("New England")
-    codes = set(airports_data.airports_in_states(con, states))
+    states, _ = airports.resolve_region("New England")
+    codes = set(store.airports_in_states(con, states))
     assert {"BOS", "BDL", "PVD", "PWM", "MHT", "BTV", "BGR"} <= codes
     # And nothing from outside the region.
     assert "LAX" not in codes and "JFK" not in codes
 
 
 def test_every_configured_region_resolves_to_real_airports(con):
-    for name in airports_data.known_region_names():
-        states, _ = airports_data.resolve_region(name)
+    for name in airports.known_region_names():
+        states, _ = airports.resolve_region(name)
         assert states, f"region {name} has no states"
-        assert airports_data.airports_in_states(con, states), f"region {name} has no airports"
+        assert store.airports_in_states(con, states), f"region {name} has no airports"
 
 
 def test_state_lookup_round_trips(con):
-    assert airports_data.state_of(con, "BOS") == "MA"
-    assert airports_data.state_of(con, "LAX") == "CA"
-    assert airports_data.state_of(con, "ZZZ") is None
+    assert store.state_of(con, "BOS") == "MA"
+    assert store.state_of(con, "LAX") == "CA"
+    assert store.state_of(con, "ZZZ") is None
 
 
 def test_config_regions_use_valid_two_letter_codes():

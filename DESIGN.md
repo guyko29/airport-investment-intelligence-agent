@@ -207,7 +207,7 @@ variation. Raising spread moves mass above the threshold for the domestic cohort
 So the range is computed as the envelope over all three CVs rather than assuming the
 endpoints bracket the point estimate — there is a regression test pinning this.
 
-**Tier 2 — exact, when available.** Drop a BTS T-100 Segment CSV into `data/segments/`
+**Tier 2 — exact, when available.** Drop a BTS T-100 Segment CSV into `cache/segments/`
 and run one command; the same tool then computes the true per-route distance
 distribution and reports `basis: "exact"`. The reader tolerates the header-naming
 variants between the TranStats UI export and the prezipped files.
@@ -332,18 +332,29 @@ web/index.html          single-file chat UI, SSE, tool-transparency panel
 app/main.py             FastAPI: POST /chat (SSE), /health, /reset
         │
 app/agent.py            claude-sonnet-5 tool-use loop, streaming, prompt caching
+        │  reads app/prompt.py: system prompt + tool schemas, the cached prefix
         │  the model chooses a tool; it never computes a number
 app/tools.py            5 tools: resolve free text → query → score → explain
         │
 app/kpis.py             PURE deterministic scoring. No I/O. 28 invariant tests.
         │
-app/data/               bts.py (T-100 → SQLite)  airports.py (resolution)
-                        segments.py (Tier-2)     faa.py (live status)
-        │
+app/airports.py         free text → IATA code, never resolving ambiguity silently
+app/store.py            SQLite: one schema, all queries        app/faa.py (live)
+        │                        ▲
+        │               app/ingest.py — BTS + OurAirports + optional segment CSVs
+        │               (the only module that talks to the network on the way in)
 app/config.py           every weight, anchor, threshold + SCORING_VERSION
 ```
 
-**Test coverage: 86 tests, ~2s.** Scoring invariants (monotonicity, verdict gates,
+The module split follows two cuts rather than a layer stack. Data is split by
+**direction** — `store.py` reads, `ingest.py` writes — because the two run at
+different moments and fail for different reasons: a failing query is a bug, a
+failing ingest is an upstream outage. The model's interface is split by **what the
+model sees** — `prompt.py` holds the system prompt and the tool schemas together,
+since they are one contract, tuned in the same sittings, and both must stay
+byte-stable for the cached prefix to survive a turn.
+
+**Test coverage: 88 tests, ~3s.** Scoring invariants (monotonicity, verdict gates,
 degenerate input, haul-mix range containment), resolution (every exam-style query),
 the four exam questions end-to-end, and the agent loop against a fake SDK client
 (parallel tool results in one message, refusal handling, loop cap, cache stability) —

@@ -13,6 +13,9 @@ Design rules, applied uniformly:
     rather than measured, an explicit `basis` field.
   * Tools never raise into the agent loop. A failure returns a structured `error`
     the model can read and explain.
+
+The JSON schemas advertising these tools to the model live in app/prompt.py,
+alongside the system prompt: both are cached prefix and both are tuned together.
 """
 
 from __future__ import annotations
@@ -20,9 +23,7 @@ from __future__ import annotations
 import sqlite3
 from typing import Any, Callable
 
-from app import config, kpis
-from app.data import airports as airports_data
-from app.data import bts, faa, segments
+from app import airports, config, faa, kpis, store
 
 
 # ---------------------------------------------------------------------------
@@ -34,21 +35,21 @@ class Analysis:
 
     def __init__(self, con: sqlite3.Connection) -> None:
         self.con = con
-        self.current_month = bts.latest_month(con)
+        self.current_month = store.latest_month(con)
         # Scored baseline: rolling N years back from the current window.
         self.baseline_years = float(config.BASELINE_LOOKBACK_YEARS)
-        self.baseline_month = bts.shift_month(
+        self.baseline_month = store.shift_month(
             self.current_month, -12 * config.BASELINE_LOOKBACK_YEARS
         )
         # Unscored pre-pandemic reference, fixed in time.
         self.reference_month = config.REFERENCE_BASELINE_END
         self.reference_years = (
-            bts.month_index(self.current_month) - bts.month_index(self.reference_month)
+            store.month_index(self.current_month) - store.month_index(self.reference_month)
         ) / 12.0
 
     def data_window(self) -> dict[str, Any]:
-        start, end = bts.window(self.current_month)
-        base_start, base_end = bts.window(self.baseline_month)
+        start, end = store.window(self.current_month)
+        base_start, base_end = store.window(self.baseline_month)
         return {
             "current_window": f"{start} .. {end}",
             "baseline_window": f"{base_start} .. {base_end}",
@@ -56,24 +57,24 @@ class Analysis:
             "baseline_is": f"rolling {config.BASELINE_LOOKBACK_YEARS}-year lookback",
             "years_between": round(self.baseline_years, 2),
             "prepandemic_reference_window_ends": self.reference_month,
-            "source": "BTS T-100 Segment Summary by Origin Airport (data.bts.gov, r495-tyji)",
+            "source": "BTS T-100 Segment Summary by Origin Airport (data.store.gov, r495-tyji)",
         }
 
     def assess_one(self, code: str) -> kpis.Assessment | None:
-        cur = bts.aggregate(self.con, code, self.current_month)
+        cur = store.aggregate(self.con, code, self.current_month)
         if cur is None:
             return None
-        base = bts.aggregate(self.con, code, self.baseline_month)
-        ref = bts.aggregate(self.con, code, self.reference_month)
+        base = store.aggregate(self.con, code, self.baseline_month)
+        ref = store.aggregate(self.con, code, self.reference_month)
         return kpis.assess(
             cur, base, self.baseline_years, self.baseline_month,
             ref, self.reference_years, self.reference_month,
         )
 
     def assess_many(self, codes: list[str]) -> dict[str, kpis.Assessment]:
-        cur = bts.aggregate_many(self.con, self.current_month, airports=codes)
-        base = bts.aggregate_many(self.con, self.baseline_month, airports=codes)
-        ref = bts.aggregate_many(self.con, self.reference_month, airports=codes)
+        cur = store.aggregate_many(self.con, self.current_month, airports=codes)
+        base = store.aggregate_many(self.con, self.baseline_month, airports=codes)
+        ref = store.aggregate_many(self.con, self.reference_month, airports=codes)
         return {
             code: kpis.assess(
                 agg, base.get(code), self.baseline_years, self.baseline_month,
@@ -89,7 +90,7 @@ def _resolve_all(con: sqlite3.Connection, queries: list[str]) -> tuple[list[str]
     resolutions: list[dict[str, Any]] = []
     failures: list[dict[str, Any]] = []
     for q in queries:
-        r = airports_data.resolve(con, q)
+        r = airports.resolve(con, q)
         resolutions.append(r.to_dict())
         if r.ok and r.code not in codes:
             codes.append(r.code)
@@ -114,22 +115,22 @@ def rank_expansion_candidates(
     candidate_codes: list[str] | None = None
 
     if region:
-        resolved = airports_data.resolve_region(region)
+        resolved = airports.resolve_region(region)
         if resolved is None:
             return {
                 "error": f"Unknown region '{region}'.",
-                "known_regions": airports_data.known_region_names(),
+                "known_regions": airports.known_region_names(),
                 "hint": "You can also pass explicit state codes via the `states` argument.",
             }
         region_states, label = resolved
         scope_label = label
-        candidate_codes = airports_data.airports_in_states(con, region_states)
+        candidate_codes = store.airports_in_states(con, region_states)
     elif states:
         scope_label = ", ".join(s.upper() for s in states)
-        candidate_codes = airports_data.airports_in_states(con, states)
+        candidate_codes = store.airports_in_states(con, states)
 
     assessments = an.assess_many(candidate_codes) if candidate_codes is not None else \
-        an.assess_many(list(bts.aggregate_many(con, an.current_month).keys()))
+        an.assess_many(list(store.aggregate_many(con, an.current_month).keys()))
 
     # Apply the eligibility gate, and report what it excluded so the ranking is
     # not silently narrower than the question asked.
@@ -299,7 +300,7 @@ def airport_profile(
 ) -> dict[str, Any]:
     """Full signal breakdown and verdict for a single airport."""
     an = Analysis(con)
-    resolution = airports_data.resolve(con, airport)
+    resolution = airports.resolve(con, airport)
     if not resolution.ok:
         return {"error": "Could not resolve airport.", "resolved": resolution.to_dict()}
 
@@ -326,7 +327,7 @@ def airport_profile(
     if not out["meets_eligibility_floor"]:
         out["eligibility_note"] = kpis.eligibility_reason(agg)
     if include_trend:
-        out["monthly_trend"] = bts.monthly_series(con, resolution.code, an.current_month)
+        out["monthly_trend"] = store.monthly_series(con, resolution.code, an.current_month)
     return out
 
 
@@ -342,11 +343,11 @@ def haul_mix(
     """Share of departures that are long haul.
 
     Answers in two tiers and always says which one it used. See
-    app/data/segments.py for why an exact figure is not available from the live
+    app/ingest.py for why an exact figure is not available from the live
     API alone.
     """
     an = Analysis(con)
-    resolution = airports_data.resolve(con, airport)
+    resolution = airports.resolve(con, airport)
     if not resolution.ok:
         return {"error": "Could not resolve airport.", "resolved": resolution.to_dict()}
 
@@ -357,14 +358,14 @@ def haul_mix(
     if threshold <= 0:
         threshold = config.LONG_HAUL_THRESHOLD_MILES
 
-    agg = bts.aggregate(con, resolution.code, an.current_month)
+    agg = store.aggregate(con, resolution.code, an.current_month)
     if agg is None:
         return {
             "error": f"No BTS traffic data for {resolution.code}.",
             "resolved": resolution.to_dict(),
         }
 
-    exact = segments.haul_mix_exact(con, resolution.code, threshold)
+    exact = store.haul_mix_exact(con, resolution.code, threshold)
     tier1 = kpis.haul_mix_from_cohorts(agg, threshold)
 
     result: dict[str, Any] = {
@@ -418,7 +419,7 @@ def haul_mix(
 def unmet_demand(con: sqlite3.Connection, airport: str) -> dict[str, Any]:
     """Modelled unmet demand for one airport, decomposed into its drivers."""
     an = Analysis(con)
-    resolution = airports_data.resolve(con, airport)
+    resolution = airports.resolve(con, airport)
     if not resolution.ok:
         return {"error": "Could not resolve airport.", "resolved": resolution.to_dict()}
 
@@ -508,140 +509,11 @@ def unmet_demand(con: sqlite3.Connection, airport: str) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Schemas exposed to the model
+# Registry
+#
+# The schemas the model sees live in app/prompt.py. test_tools.py asserts the two
+# stay in step: every schema name must have a callable here and vice versa.
 # ---------------------------------------------------------------------------
-
-TOOL_SCHEMAS: list[dict[str, Any]] = [
-    {
-        "name": "rank_expansion_candidates",
-        "description": (
-            "Rank US airports as terminal-expansion investment candidates, either "
-            "nationally or within a named region or set of states. Returns a scored, "
-            "ranked list with each airport's signal breakdown and a plain-English "
-            "rationale. Use this for questions like 'which airports in New England "
-            "are strong candidates for terminal expansion' or 'best expansion "
-            "opportunities in Texas'."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "region": {
-                    "type": "string",
-                    "description": (
-                        "Named region, e.g. 'New England', 'Pacific Northwest', "
-                        "'Southeast', 'California'. Omit for a national ranking."
-                    ),
-                },
-                "states": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": (
-                        "Two-letter state codes, e.g. ['MA','CT']. Use when the user "
-                        "names states rather than a region."
-                    ),
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "How many airports to return. Default 10, max 50.",
-                },
-            },
-            "required": [],
-        },
-    },
-    {
-        "name": "compare_airports",
-        "description": (
-            "Compare two or more airports side by side on congestion and expansion "
-            "signals, and rank them by a congestion index. Accepts free-text names "
-            "including metro shorthand such as 'LA' or 'Santa Ana' and reports what "
-            "each resolved to. Also returns live FAA ground-stop and delay-program "
-            "status. Use for 'compare X and Y congestion levels'."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "airports": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": (
-                        "Two or more airport references: IATA codes, city names, or "
-                        "metro shorthand."
-                    ),
-                },
-                "include_live_status": {
-                    "type": "boolean",
-                    "description": "Include live FAA status. Default true.",
-                },
-            },
-            "required": ["airports"],
-        },
-    },
-    {
-        "name": "airport_profile",
-        "description": (
-            "Full investment assessment for one airport: all four scored signals with "
-            "raw inputs, the composite score, verdict with gate detail, key facts, a "
-            "12-month trend series, and live FAA status. Use for 'tell me about X', "
-            "'is X a good candidate', or any follow-up needing one airport's detail."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "airport": {
-                    "type": "string",
-                    "description": "Airport reference: IATA code, city, or metro name.",
-                },
-                "include_trend": {
-                    "type": "boolean",
-                    "description": "Include the monthly trend series. Default true.",
-                },
-            },
-            "required": ["airport"],
-        },
-    },
-    {
-        "name": "haul_mix",
-        "description": (
-            "Share of an airport's departures that are long haul, with the distance "
-            "threshold configurable. Returns an exact figure when per-route segment "
-            "data is loaded, otherwise a clearly-labelled estimate with an "
-            "uncertainty range and a robust floor. Always report which basis was "
-            "used. Use for 'what percentage of flights out of X are long haul' or "
-            "questions about route mix and stage length."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "airport": {"type": "string", "description": "Airport reference."},
-                "threshold_miles": {
-                    "type": "number",
-                    "description": (
-                        "Long-haul boundary in statute miles. Default 2175 "
-                        "(3,500 km), the conventional industry definition."
-                    ),
-                },
-            },
-            "required": ["airport"],
-        },
-    },
-    {
-        "name": "unmet_demand",
-        "description": (
-            "Estimated unmet passenger demand at one airport, decomposed into its "
-            "drivers with an explanation of each. Returns a model estimate, never a "
-            "measurement, and says so. Use for 'what is the unmet demand at X and "
-            "why' or 'is X turning away passengers'."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "airport": {"type": "string", "description": "Airport reference."},
-            },
-            "required": ["airport"],
-        },
-    },
-]
-
 
 _DISPATCH: dict[str, Callable[..., dict[str, Any]]] = {
     "rank_expansion_candidates": rank_expansion_candidates,

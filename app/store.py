@@ -1,51 +1,39 @@
 """
-BTS T-100 Segment Summary By Origin Airport: ingest and query.
+Everything that reads the SQLite cache: schema, connections, queries.
 
-The full table is ~132k rows (one row per origin airport per month, Jan 2014 to
-present), which is small enough to cache in its entirety. We pull it once into
-SQLite and query locally thereafter. Two reasons that matters:
+One module owns the database. Before, three ingest modules each carried their own
+CREATE TABLE and each ran it on the way past, so which tables existed depended on
+which refresh had happened to run -- `airports.is_populated` had to re-run its own
+DDL just to avoid "no such table". Here the schema is declared once and `connect`
+applies all of it, so every connection sees every table.
 
-  1. The demo is instant and does not depend on Socrata being reachable.
-  2. Ranking queries touch every airport at once; doing that over HTTP would be
-     both slow and rude.
+The split from app/ingest.py is by direction, not by data source: this is the read
+side (plus the schema the write side fills), and ingest.py is network-to-disk. They
+are separated because they run at different moments and fail for different reasons
+-- a query failing means a bug, an ingest failing means the upstream is down.
 
-Run `python -m app.data.bts --refresh` to (re)populate the cache.
-
-IMPORTANT field semantics: `total_distance_flight_sm` is the MEAN STAGE LENGTH per
-departure in statute miles, not a total distance flown. Verified against SFO
-2026-04: 1,881 with 15,753 departures. Aggregating it across months therefore
+IMPORTANT field semantics: `total_distance_flight_sm` from BTS is the MEAN STAGE
+LENGTH per departure in statute miles, not a total distance flown. Verified against
+SFO 2026-04: 1,881 with 15,753 departures. Aggregating it across months therefore
 requires a departure-weighted mean, not a sum.
 """
 
 from __future__ import annotations
 
-import argparse
 import sqlite3
-import sys
-from typing import Any, Iterable, Iterator, Sequence
-
-import httpx
+from typing import Any, Iterable, Sequence
 
 from app import config
 
-# Columns we pull from Socrata. Everything else in the table (freight, mail,
-# payload, per-flight ratios we recompute ourselves) is not used by any signal.
-_FIELDS = [
-    "origin_airport_code",
-    "reporting_month",
-    "total_departures",
-    "total_passengers",
-    "total_seats",
-    "total_distance_flight_sm",
-    "domestic_departures",
-    "domestic_passengers",
-    "domestic_seats",
-    "domestic_distance_flight",
-    "origin_city_name",
-    "origin_airport_name",
-]
+# ---------------------------------------------------------------------------
+# Schema
+#
+# Every table in one place. `connect` applies the whole thing, so a fresh cache
+# and a half-ingested one present the same shape to callers.
+# ---------------------------------------------------------------------------
 
 _SCHEMA = """
+-- BTS T-100 Segment Summary by origin airport, one row per airport-month.
 CREATE TABLE IF NOT EXISTS bts_monthly (
     airport                  TEXT NOT NULL,
     month                    TEXT NOT NULL,          -- 'YYYY-MM'
@@ -62,12 +50,45 @@ CREATE TABLE IF NOT EXISTS bts_monthly (
     PRIMARY KEY (airport, month)
 );
 CREATE INDEX IF NOT EXISTS idx_bts_month ON bts_monthly(month);
+
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
+
+-- OurAirports reference data: codes, location, iso_region.
+CREATE TABLE IF NOT EXISTS airports (
+    iata        TEXT PRIMARY KEY,
+    icao        TEXT,
+    name        TEXT,
+    municipality TEXT,
+    iso_region  TEXT,          -- 'US-MA'
+    state       TEXT,          -- 'MA'
+    country     TEXT,
+    latitude    REAL,
+    longitude   REAL,
+    type        TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_airports_state ON airports(state);
+CREATE INDEX IF NOT EXISTS idx_airports_muni  ON airports(municipality);
+
+-- Optional Tier-2 per-route distances. Empty unless segment CSVs were ingested.
+CREATE TABLE IF NOT EXISTS segments (
+    origin      TEXT NOT NULL,
+    dest        TEXT NOT NULL,
+    year        INTEGER NOT NULL,
+    month       INTEGER NOT NULL,
+    distance    REAL NOT NULL,
+    departures  REAL NOT NULL,
+    seats       REAL NOT NULL DEFAULT 0,
+    passengers  REAL NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_seg_origin ON segments(origin);
 """
 
 
 # ---------------------------------------------------------------------------
 # Month helpers ('YYYY-MM' strings sort lexicographically, which is why we use them)
+#
+# These live here rather than with the ingest they were written for: every window
+# in the analysis is expressed in them, so they are vocabulary, not plumbing.
 # ---------------------------------------------------------------------------
 
 def month_index(month: str) -> int:
@@ -93,139 +114,58 @@ def window(end_month: str, length: int = config.TTM_MONTHS) -> tuple[str, str]:
 # Connection
 # ---------------------------------------------------------------------------
 
-def connect(read_only: bool = False) -> sqlite3.Connection:
+def connect() -> sqlite3.Connection:
+    """Open the cache, creating any missing tables.
+
+    A fresh handle per request: SQLite connections are not shareable across the
+    threads the event loop may run a request on.
+    """
     config.CACHE_DIR.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(config.DB_PATH)
     con.row_factory = sqlite3.Row
-    if not read_only:
-        con.executescript(_SCHEMA)
+    con.executescript(_SCHEMA)
     return con
 
 
-def is_populated() -> bool:
+def _count(table: str) -> int:
+    """Row count, or 0 if there is no database file yet."""
     if not config.DB_PATH.exists():
-        return False
+        return 0
     try:
         con = connect()
-        n = con.execute("SELECT COUNT(*) FROM bts_monthly").fetchone()[0]
+        n = con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
         con.close()
-        return n > 0
+        return n
     except sqlite3.Error:
-        return False
-
-
-# ---------------------------------------------------------------------------
-# Ingest
-# ---------------------------------------------------------------------------
-
-def _to_int(value: Any) -> int:
-    if value is None or value == "":
-        return 0
-    try:
-        return int(float(value))
-    except (TypeError, ValueError):
         return 0
 
 
-def _to_float(value: Any) -> float:
-    if value is None or value == "":
-        return 0.0
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return 0.0
+def bts_populated() -> bool:
+    return _count("bts_monthly") > 0
 
 
-def _fetch_pages(client: httpx.Client) -> Iterator[list[dict[str, Any]]]:
-    """Page through the Socrata resource with a deterministic sort order.
-
-    Socrata paging without an explicit $order is not guaranteed stable across
-    requests, which would silently drop or duplicate rows.
-    """
-    offset = 0
-    while True:
-        params = {
-            "$select": ",".join(_FIELDS),
-            "$order": "origin_airport_code,reporting_month",
-            "$limit": str(config.BTS_PAGE_SIZE),
-            "$offset": str(offset),
-        }
-        resp = client.get(config.BTS_BASE_URL, params=params)
-        resp.raise_for_status()
-        rows = resp.json()
-        if not rows:
-            return
-        yield rows
-        if len(rows) < config.BTS_PAGE_SIZE:
-            return
-        offset += config.BTS_PAGE_SIZE
+def airports_populated() -> bool:
+    return _count("airports") > 0
 
 
-def _normalise(row: dict[str, Any]) -> tuple | None:
-    airport = (row.get("origin_airport_code") or "").strip().upper()
-    raw_month = row.get("reporting_month") or ""
-    if not airport or len(raw_month) < 7:
-        return None
-    month = raw_month[:7]                      # '2026-04-01T00:00:00.000' -> '2026-04'
-    return (
-        airport,
-        month,
-        _to_int(row.get("total_departures")),
-        _to_int(row.get("total_passengers")),
-        _to_int(row.get("total_seats")),
-        _to_float(row.get("total_distance_flight_sm")),
-        _to_int(row.get("domestic_departures")),
-        _to_int(row.get("domestic_passengers")),
-        _to_int(row.get("domestic_seats")),
-        _to_float(row.get("domestic_distance_flight")),
-        (row.get("origin_city_name") or "").strip() or None,
-        (row.get("origin_airport_name") or "").strip() or None,
-    )
-
-
-def refresh(verbose: bool = True) -> int:
-    """Pull the whole table into SQLite. Idempotent -- safe to re-run."""
-    con = connect()
-    inserted = 0
-    with httpx.Client(timeout=config.HTTP_TIMEOUT_SECONDS, follow_redirects=True) as client:
-        for page in _fetch_pages(client):
-            records = [r for r in (_normalise(row) for row in page) if r is not None]
-            con.executemany(
-                """INSERT OR REPLACE INTO bts_monthly
-                   (airport, month, total_departures, total_passengers, total_seats,
-                    total_stage_miles, domestic_departures, domestic_passengers,
-                    domestic_seats, domestic_stage_miles, city_name, airport_name)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
-                records,
-            )
-            con.commit()
-            inserted += len(records)
-            if verbose:
-                print(f"  ingested {inserted:,} rows...", flush=True)
-
-    latest = con.execute("SELECT MAX(month) FROM bts_monthly").fetchone()[0]
-    con.execute(
-        "INSERT OR REPLACE INTO meta(key, value) VALUES ('latest_month', ?)", (latest,)
-    )
-    con.commit()
-    total = con.execute("SELECT COUNT(*) FROM bts_monthly").fetchone()[0]
-    con.close()
-    if verbose:
-        print(f"BTS cache ready: {total:,} rows, latest month {latest}")
-    return total
+def has_segment_data(con: sqlite3.Connection) -> bool:
+    """Whether Tier-2 exact haul-mix data was ingested. Usually False."""
+    row = con.execute("SELECT COUNT(*) FROM segments").fetchone()
+    return bool(row and row[0])
 
 
 # ---------------------------------------------------------------------------
-# Query
+# Traffic queries
 # ---------------------------------------------------------------------------
 
 def latest_month(con: sqlite3.Connection) -> str:
     row = con.execute("SELECT MAX(month) AS m FROM bts_monthly").fetchone()
     if not row or not row["m"]:
         raise RuntimeError(
-            "BTS cache is empty. Run: python -m app.data.bts --refresh"
+            "BTS cache is empty. Run: python -m app.ingest --source bts"
         )
     return row["m"]
+
 
 
 # Departure-weighted mean stage length. Summing the monthly means would weight a
@@ -351,33 +291,104 @@ def monthly_series(
 
 
 # ---------------------------------------------------------------------------
-# CLI
+# Airport reference queries
 # ---------------------------------------------------------------------------
 
-def main(argv: Iterable[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Manage the BTS T-100 local cache.")
-    parser.add_argument("--refresh", action="store_true", help="(re)populate the cache")
-    parser.add_argument("--status", action="store_true", help="show cache status")
-    args = parser.parse_args(list(argv) if argv is not None else None)
-
-    if args.refresh:
-        refresh()
-        return 0
-
-    con = connect()
-    total = con.execute("SELECT COUNT(*) FROM bts_monthly").fetchone()[0]
-    if total == 0:
-        print("BTS cache is empty. Run: python -m app.data.bts --refresh")
-        con.close()
-        return 1
-    lo, hi = con.execute("SELECT MIN(month), MAX(month) FROM bts_monthly").fetchone()
-    airports = con.execute("SELECT COUNT(DISTINCT airport) FROM bts_monthly").fetchone()[0]
-    print(f"rows      {total:,}")
-    print(f"months    {lo} .. {hi}")
-    print(f"airports  {airports:,}")
-    con.close()
-    return 0
+def lookup_airport(con: sqlite3.Connection, code: str) -> sqlite3.Row | None:
+    return con.execute(
+        "SELECT iata, name, municipality, state FROM airports WHERE iata = ?",
+        (code.upper(),),
+    ).fetchone()
 
 
-if __name__ == "__main__":
-    sys.exit(main())
+def busiest_code(con: sqlite3.Connection, codes: Sequence[str]) -> str | None:
+    """Of these airports, the one with the most BTS passengers on record.
+
+    Traffic beats OurAirports' `type` field for choosing between co-located fields:
+    it is current, and it correctly ranks a busy commercial airport above a GA strip.
+    """
+    if not codes:
+        return None
+    placeholders = ",".join("?" * len(codes))
+    row = con.execute(
+        f"""SELECT airport, SUM(total_passengers) AS pax
+            FROM bts_monthly
+            WHERE airport IN ({placeholders})
+            GROUP BY airport ORDER BY pax DESC LIMIT 1""",
+        list(codes),
+    ).fetchone()
+    return row["airport"] if row else None
+
+
+
+def airports_in_states(con: sqlite3.Connection, states: Iterable[str]) -> list[str]:
+    codes = [s.strip().upper() for s in states if s and s.strip()]
+    if not codes:
+        return []
+    placeholders = ",".join("?" * len(codes))
+    rows = con.execute(
+        f"SELECT iata FROM airports WHERE state IN ({placeholders}) ORDER BY iata",
+        codes,
+    ).fetchall()
+    return [r["iata"] for r in rows]
+
+
+def state_of(con: sqlite3.Connection, code: str) -> str | None:
+    row = con.execute("SELECT state FROM airports WHERE iata = ?", (code.upper(),)).fetchone()
+    return row["state"] if row else None
+
+# ---------------------------------------------------------------------------
+# Segment queries (Tier 2, present only if segment CSVs were ingested)
+# ---------------------------------------------------------------------------
+
+
+def haul_mix_exact(
+    con: sqlite3.Connection, airport: str, threshold_miles: float
+) -> dict[str, Any] | None:
+    """True departure-weighted distance distribution for one origin airport.
+
+    Returns None when no segment rows exist for the airport, so callers fall back
+    to Tier 1 rather than reporting a spuriously precise zero.
+    """
+    if not has_segment_data(con):
+        return None
+
+    rows = con.execute(
+        """SELECT dest, distance, SUM(departures) AS departures,
+                  SUM(seats) AS seats, SUM(passengers) AS passengers
+           FROM segments WHERE origin = ?
+           GROUP BY dest, distance""",
+        (airport.upper(),),
+    ).fetchall()
+    if not rows:
+        return None
+
+    total_dep = sum(r["departures"] for r in rows)
+    if total_dep <= 0:
+        return None
+
+    long_dep = sum(r["departures"] for r in rows if r["distance"] >= threshold_miles)
+    long_routes = sorted(
+        ({"dest": r["dest"], "distance_miles": round(r["distance"]),
+          "departures": round(r["departures"])}
+         for r in rows if r["distance"] >= threshold_miles),
+        key=lambda r: -r["departures"],
+    )
+    years = con.execute(
+        "SELECT MIN(year), MAX(year) FROM segments WHERE origin = ?", (airport.upper(),)
+    ).fetchone()
+
+    return {
+        "basis": "exact",
+        "threshold_miles": threshold_miles,
+        "long_haul_share_pct": round(100.0 * long_dep / total_dep, 1),
+        "long_haul_departures": round(long_dep),
+        "total_departures": round(total_dep),
+        "route_count": len(rows),
+        "long_haul_route_count": len(long_routes),
+        "top_long_haul_routes": long_routes[:10],
+        "mean_stage_miles": round(
+            sum(r["distance"] * r["departures"] for r in rows) / total_dep, 1
+        ),
+        "data_years": [y for y in years if y] if years else [],
+    }

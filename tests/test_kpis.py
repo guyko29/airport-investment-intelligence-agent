@@ -26,7 +26,7 @@ def make_agg(
     domestic_stage: float = 800.0,
     airport: str = "TST",
 ) -> dict:
-    """A synthetic airport-window aggregate shaped like bts.aggregate output."""
+    """A synthetic airport-window aggregate shaped like store.aggregate output."""
     dom_dep = departures if domestic_departures is None else domestic_departures
     intl_dep = departures - dom_dep
     dom_miles = dom_dep * domestic_stage

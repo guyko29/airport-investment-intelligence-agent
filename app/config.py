@@ -17,9 +17,13 @@ SCORING_VERSION = "aiia-2.0.0"   # 2.0.0: scored baseline moved 2019 -> rolling 
 # ---------------------------------------------------------------------------
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+# Everything derived or downloaded lives under CACHE_DIR, which is disposable:
+# delete it and the app rebuilds what it can on the next boot. The one thing it
+# cannot rebuild is SEGMENTS_DIR, whose CSVs are a manual download (see
+# app/ingest.py) -- losing those only drops haul mix back to its Tier-1 estimate.
 CACHE_DIR = PROJECT_ROOT / "cache"
 DB_PATH = CACHE_DIR / "bts.db"
-SEGMENTS_DIR = PROJECT_ROOT / "data" / "segments"
+SEGMENTS_DIR = CACHE_DIR / "segments"
 WEB_DIR = PROJECT_ROOT / "web"
 
 # ---------------------------------------------------------------------------

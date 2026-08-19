@@ -14,13 +14,12 @@ from typing import Any
 
 import pytest
 
-from app import config
+from app import config, main, store
 from app.agent import Agent
-from app.data import bts
 
 pytestmark = pytest.mark.skipif(
-    not bts.is_populated(),
-    reason="local cache not populated; run python -m app.data.bts --refresh",
+    not store.bts_populated(),
+    reason="local cache not populated; run python -m app.ingest --source all",
 )
 
 
@@ -104,7 +103,7 @@ async def collect(agent: Agent, message: str, con) -> list[dict[str, Any]]:
 
 @pytest.fixture
 def con():
-    connection = bts.connect()
+    connection = store.connect()
     yield connection
     connection.close()
 
@@ -326,3 +325,41 @@ async def test_reset_clears_history(con):
     assert agent.messages
     agent.reset()
     assert agent.messages == []
+
+
+# ---------------------------------------------------------------------------
+# Presentation
+#
+# The loop yields raw tool results; main.py decides what the browser gets. The
+# split is only safe if the compaction still happens, so assert it here rather
+# than trusting that nothing downstream forgot to call it.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_browser_payload_is_compacted_but_the_model_gets_everything(con):
+    client = FakeClient([
+        FakeMessage([tool_block("airport_profile", {"airport": "BOS"})], "tool_use"),
+        FakeMessage([text_block("Boston scores moderately.")], "end_turn"),
+    ])
+    agent = Agent(client)
+    events = await collect(agent, "tell me about Boston", con)
+    raw = next(e for e in events if e["type"] == "tool_result")["result"]
+
+    shown = main._for_browser(
+        {"type": "tool_result", "name": "airport_profile", "result": raw}
+    )["result"]
+
+    assert shown["airport"] == raw["airport"] == "BOS"
+    assert shown["load_factor_pct"] == raw["facts"]["load_factor_pct"]
+    # The panel gets headline fields only -- the signal tree stays server-side.
+    assert "signals" in raw and "signals" not in shown
+    assert len(json.dumps(shown)) < len(json.dumps(raw, default=str)) / 4
+
+    # The model's copy is untouched: full payload, serialised into the tool result.
+    sent = json.loads(client.calls[1]["messages"][-1]["content"][0]["content"])
+    assert sent == raw
+
+
+def test_non_tool_events_pass_through_untouched():
+    for event in [{"type": "text", "text": "hi"}, {"type": "done", "usage": {}}]:
+        assert main._for_browser(event) is event

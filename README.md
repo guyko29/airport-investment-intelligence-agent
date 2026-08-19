@@ -28,7 +28,7 @@ Populate the local data cache (one-time, ~30s — pulls 131,739 rows from BTS an
 OurAirports reference file):
 
 ```bash
-python -m app.data.bts --refresh && python -m app.data.airports --refresh
+python -m app.ingest --source all
 ```
 
 This step is optional: the server builds the cache itself on startup if it is empty,
@@ -97,10 +97,10 @@ Segment** export from
 `YEAR`, `MONTH` — then:
 
 ```bash
-python -m app.data.segments --refresh
+python -m app.ingest --source segments
 ```
 
-Drop the CSV in `data/segments/` first. The tool switches to `basis: "exact"`
+Drop the CSV in `cache/segments/` first. The tool switches to `basis: "exact"`
 automatically and says so in its answer.
 
 ---
@@ -111,7 +111,7 @@ automatically and says so in its answer.
 python -m pytest
 ```
 
-86 tests, ~2 seconds, no API key or network required. Scoring invariants run against
+88 tests, ~3 seconds, no API key or network required. Scoring invariants run against
 synthetic aggregates; resolution and the four exam questions run against the local
 cache; the agent loop runs against a fake SDK client.
 
@@ -122,28 +122,32 @@ cache; the agent loop runs against a fake SDK client.
 ```
 app/
   config.py           weights, anchor tables, thresholds, SCORING_VERSION
-  kpis.py             pure deterministic scoring — no I/O
-  tools.py            the 5 tools exposed to the model
+  prompt.py           system prompt + tool schemas — everything the model reads
   agent.py            claude-sonnet-5 tool-use loop with streaming
+  tools.py            the 5 tools exposed to the model
+  kpis.py             pure deterministic scoring — no I/O
+  airports.py         free-text → IATA code, metro and region names
+  store.py            SQLite: schema, connections, all queries
+  ingest.py           BTS + OurAirports + optional segment CSVs → SQLite
+  faa.py              live FAA status
   main.py             FastAPI server
-  data/
-    bts.py            BTS T-100 ingest + windowed aggregate queries
-    airports.py       OurAirports ingest + free-text resolution
-    segments.py       optional Tier-2 exact haul-mix
-    faa.py            live FAA status
 web/index.html        chat UI (no build step)
-tests/                86 tests
+tests/                88 tests
 DESIGN.md             methodology, tradeoffs, where AI is used
 ```
+
+The two axes: `store.py` reads and `ingest.py` writes, `prompt.py` is what the model
+is told and `tools.py` is what it can do. `kpis.py` never touches I/O, and the model
+never touches arithmetic.
 
 Useful commands:
 
 ```bash
-python -m app.data.bts --status
+python -m app.ingest
 ```
 
 ```bash
-python -m app.data.airports --resolve "Santa Ana"
+python -m app.airports "Santa Ana"
 ```
 
 ```bash

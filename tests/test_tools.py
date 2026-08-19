@@ -11,18 +11,17 @@ from __future__ import annotations
 
 import pytest
 
-from app import config, tools
-from app.data import bts
+from app import config, prompt, store, tools
 
 pytestmark = pytest.mark.skipif(
-    not bts.is_populated(),
-    reason="local cache not populated; run python -m app.data.bts --refresh",
+    not store.bts_populated(),
+    reason="local cache not populated; run python -m app.ingest --source all",
 )
 
 
 @pytest.fixture(scope="module")
 def con():
-    connection = bts.connect()
+    connection = store.connect()
     yield connection
     connection.close()
 
@@ -234,16 +233,22 @@ def test_every_tool_reports_its_data_window_and_scoring_version(con):
         assert window["prepandemic_reference_window_ends"] == config.REFERENCE_BASELINE_END
         # The scored baseline rolls with the data, so assert the relationship
         # rather than a hardcoded month.
-        assert bts.month_index(window["baseline_window_ends"]) == (
-            bts.month_index(result["data_window"]["current_window"].split(" .. ")[1])
+        assert store.month_index(window["baseline_window_ends"]) == (
+            store.month_index(result["data_window"]["current_window"].split(" .. ")[1])
             - 12 * config.BASELINE_LOOKBACK_YEARS
         )
 
 
 def test_tool_schemas_match_the_dispatch_table():
+    """The schemas live in app/prompt.py, the callables in app/tools.py.
+
+    Split across two modules they can drift, so the contract is asserted here:
+    a schema with no implementation is a tool the model will call and get an
+    "Unknown tool" back from.
+    """
     from app.tools import _DISPATCH  # noqa: PLC0415
-    assert {s["name"] for s in tools.TOOL_SCHEMAS} == set(_DISPATCH)
-    for schema in tools.TOOL_SCHEMAS:
+    assert {s["name"] for s in prompt.TOOL_SCHEMAS} == set(_DISPATCH)
+    for schema in prompt.TOOL_SCHEMAS:
         assert schema["description"].strip()
         assert schema["input_schema"]["type"] == "object"
         for prop in schema["input_schema"]["properties"].values():

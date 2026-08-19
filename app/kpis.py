@@ -575,8 +575,8 @@ def haul_mix_from_cohorts(
             "International figures are derived as total minus domestic.",
         ],
         "how_to_get_exact": (
-            "Add a BTS T-100 Segment CSV to data/segments/ and run "
-            "python -m app.data.segments --refresh to compute the true per-route "
+            "Add a BTS T-100 Segment CSV to cache/segments/ and run "
+            "python -m app.ingest --source segments to compute the true per-route "
             "distance distribution."
         ),
     }

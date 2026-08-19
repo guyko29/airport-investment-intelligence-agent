@@ -21,9 +21,8 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
 from app import config
-from app.agent import Agent, open_connection
-from app.data import airports as airports_data
-from app.data import bts, segments
+from app.agent import Agent
+from app import ingest, store
 
 _SESSIONS: dict[str, Agent] = {}
 _MAX_SESSIONS = 200
@@ -44,10 +43,10 @@ async def _ensure_data() -> None:
     """
     global _DATA_ERROR
     try:
-        if not bts.is_populated():
-            await asyncio.to_thread(bts.refresh)
-        if not airports_data.is_populated():
-            await asyncio.to_thread(airports_data.refresh)
+        if not store.bts_populated():
+            await asyncio.to_thread(ingest.refresh_bts)
+        if not store.airports_populated():
+            await asyncio.to_thread(ingest.refresh_airports)
         _DATA_ERROR = None
     except Exception as exc:  # noqa: BLE001
         _DATA_ERROR = f"{type(exc).__name__}: {exc}"
@@ -83,6 +82,91 @@ def _sse(event: dict[str, Any]) -> str:
     return f"data: {json.dumps(event, default=str)}\n\n"
 
 
+# ---------------------------------------------------------------------------
+# Presentation
+#
+# The agent yields raw tool results. What the browser gets is decided here,
+# because it is a property of this UI -- the transparency panel wants a handful
+# of headline fields, not the entire signal tree down the SSE pipe. The model
+# still receives the full payload.
+# ---------------------------------------------------------------------------
+
+def _for_browser(event: dict[str, Any]) -> dict[str, Any]:
+    if event.get("type") != "tool_result":
+        return event
+    return {
+        **event,
+        "result": _summarise_tool_result(event["name"], event["result"]),
+    }
+
+
+def _summarise_tool_result(name: str, result: dict[str, Any]) -> dict[str, Any]:
+    """Compact a tool result for the transparency panel.
+
+    The model gets the full payload; the browser gets enough to show what the tool
+    actually returned without shipping the entire signal tree over SSE.
+    """
+    if "error" in result:
+        return {"error": result["error"]}
+
+    if name == "rank_expansion_candidates":
+        return {
+            "scope": result.get("scope"),
+            "eligible_count": result.get("eligible_count"),
+            "top": [
+                {
+                    "rank": r["rank"],
+                    "airport": r["airport"],
+                    "score": r["score"],
+                    "verdict": r["verdict"],
+                }
+                for r in result.get("ranking", [])[:8]
+            ],
+        }
+    if name == "compare_airports":
+        return {
+            "resolved": [
+                {"query": r["query"], "code": r["code"]} for r in result.get("resolved", [])
+            ],
+            "congestion_ranking": [
+                {
+                    "rank": c["congestion_rank"],
+                    "airport": c["airport"],
+                    "index": c["congestion_index"],
+                    "load_factor_pct": c["load_factor_pct"],
+                }
+                for c in result.get("congestion_ranking", [])
+            ],
+        }
+    if name == "airport_profile":
+        return {
+            "airport": result.get("airport"),
+            "score": result.get("score"),
+            "verdict": result.get("verdict"),
+            "data_quality": result.get("data_quality"),
+            "load_factor_pct": (result.get("facts") or {}).get("load_factor_pct"),
+        }
+    if name == "haul_mix":
+        answer = result.get("answer", {})
+        return {
+            "airport": (result.get("resolved") or {}).get("code"),
+            "basis": answer.get("basis"),
+            "long_haul_share_pct": answer.get(
+                "long_haul_share_pct", answer.get("long_haul_share_pct_estimate")
+            ),
+            "range": answer.get("long_haul_share_pct_range"),
+            "threshold_miles": result.get("threshold_miles"),
+        }
+    if name == "unmet_demand":
+        return {
+            "airport": result.get("airport"),
+            "unmet_index_pct": result.get("unmet_demand_index_pct_of_passengers"),
+            "basis": result.get("basis"),
+            "driver_count": len(result.get("why", [])),
+        }
+    return {"keys": sorted(result)[:12]}
+
+
 @app.get("/health")
 async def health() -> dict[str, Any]:
     if _DATA_ERROR is not None:
@@ -93,12 +177,12 @@ async def health() -> dict[str, Any]:
             "model": config.MODEL,
             "scoring_version": config.SCORING_VERSION,
         }
-    con = open_connection()
+    con = store.connect()
     try:
-        latest = bts.latest_month(con)
+        latest = store.latest_month(con)
         rows = con.execute("SELECT COUNT(*) FROM bts_monthly").fetchone()[0]
         airports = con.execute("SELECT COUNT(*) FROM airports").fetchone()[0]
-        tier2 = segments.has_segment_data(con)
+        tier2 = store.has_segment_data(con)
     finally:
         con.close()
     return {
@@ -141,10 +225,12 @@ async def chat(req: ChatRequest) -> StreamingResponse:
     agent = _get_agent(req.session_id)
 
     async def event_stream() -> AsyncIterator[str]:
-        con = open_connection()
+        # A fresh handle per request: SQLite connections are not shareable across
+        # the threads the event loop may run this on.
+        con = store.connect()
         try:
             async for event in agent.run(req.message, con):
-                yield _sse(event)
+                yield _sse(_for_browser(event))
                 # Give the event loop a chance to flush each chunk to the client.
                 await asyncio.sleep(0)
         except Exception as exc:  # noqa: BLE001

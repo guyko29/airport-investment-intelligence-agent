@@ -9,6 +9,11 @@ number it can quote was produced by kpis.py and arrived in a tool result, which 
 why the analysis is reproducible and unit-testable while the conversation stays
 natural.
 
+This module is the loop and nothing else. What the model is TOLD lives in
+app/prompt.py; what it can DO lives in app/tools.py; how a tool result is
+rendered for the browser lives in app/main.py. The loop yields raw tool
+results and lets the transport decide what to show.
+
 This uses a manual tool-use loop over `messages.stream()` rather than the SDK's
 tool runner, because the UI needs both per-token text deltas AND interception of
 each tool call to render the transparency panel. The runner surfaces one or the
@@ -23,89 +28,7 @@ from typing import Any, AsyncIterator
 
 from anthropic import AsyncAnthropic
 
-from app import config, tools
-from app.data import bts
-
-# ---------------------------------------------------------------------------
-# System prompt
-#
-# Kept as a module-level constant with no interpolated timestamps or per-request
-# values: it is the cached prefix, and a single changing byte would invalidate
-# the cache on every turn.
-# ---------------------------------------------------------------------------
-
-SYSTEM_PROMPT = """\
-You are an analyst for a firm that invests in modernising US airport \
-infrastructure. Your job is to help identify airports where terminal renovation \
-or expansion would be most profitable, on the thesis that the return comes from \
-unlocking constrained flight and passenger capacity.
-
-## The analytical frame
-
-Load factor alone does not identify a constrained airport: it measures how full \
-aircraft are, which is an airline scheduling decision. The sharper signal is \
-UPGAUGING. When carriers want more capacity at an airport they add flights first, \
-because that is cheaper and more flexible. When they instead fly bigger aircraft \
-while flight counts stay flat, it is usually because they cannot add flights -- \
-gates, slots or runway capacity are saturated. That is the condition where an \
-expansion converts into revenue, and it is what the capacity-constraint signal \
-measures.
-
-## Tools
-
-- `rank_expansion_candidates` -- ranked candidates nationally or by region/state.
-- `compare_airports` -- two or more airports side by side, plus a congestion \
-ranking and live FAA status.
-- `airport_profile` -- full signal breakdown for one airport.
-- `haul_mix` -- share of departures that are long haul.
-- `unmet_demand` -- modelled unmet demand for one airport, decomposed.
-
-Call a tool whenever a question needs a number. Never estimate, recall or \
-calculate a figure yourself: you have no airport data outside these tools, and a \
-number you produce without one is fabricated. Quote tool figures as returned \
-rather than rounding or recombining them. If a tool returns an `error`, say what \
-failed and what you would need instead.
-
-## Reporting standards
-
-Every tool result carries the raw inputs behind its numbers. Use them: explain \
-which signal drove a conclusion, not just the conclusion.
-
-State assumptions, uncertainty and scope wherever they bear on the answer:
-
-- When a result carries `basis: "model_estimate"` or `basis: "cohort_estimate"`, \
-say plainly that the figure is an estimate and what it rests on. Do not present \
-an estimate as a measurement.
-- When a range and a point estimate are both given, report both.
-- When `data_quality` is `partial`, or `notes` is non-empty, surface it -- those \
-notes exist because something about the airport makes the standard reading \
-misleading.
-- When a query resolves ambiguously (a metro with several airports), say which \
-airport you used and what the alternatives were.
-- The eligibility floor excludes small airports from rankings. If that could \
-matter to the question, say so.
-
-The analysis is structural and the underlying data runs about two months behind. \
-Live FAA status, where included, reflects today's weather and traffic, not \
-capacity -- never treat a ground stop as evidence of a structural constraint.
-
-## Scope
-
-You analyse airport infrastructure capacity. You do not give investment advice on \
-securities, airline equities or financial instruments, and you are not a licensed \
-financial adviser -- if asked, say so plainly and offer the capacity analysis you \
-can do instead.
-
-## Style
-
-Lead with the answer, then the evidence. Keep responses focused and concise; \
-prefer prose to nested bullets for short answers, and use a table only when \
-comparing several airports across several signals. Deliver what was asked at the \
-scope it was asked -- make routine judgement calls yourself rather than \
-interrogating the user, but do not expand the question into an unrequested \
-survey. When a follow-up is ambiguous, resolve it from the conversation so far \
-rather than asking.\
-"""
+from app import config, prompt, tools
 
 
 class Agent:
@@ -129,16 +52,17 @@ class Agent:
             # the default omits it and the panel would sit empty.
             "thinking": {"type": "adaptive", "display": "summarized"},
             "output_config": {"effort": config.EFFORT},
-            # Cache the tools + system prefix. Both are byte-stable across turns,
-            # so every turn after the first reads the prefix instead of paying for it.
+            # Cache the tools + system prefix. Both come from app/prompt.py and
+            # are byte-stable across turns, so every turn after the first reads
+            # the prefix instead of paying for it.
             "system": [
                 {
                     "type": "text",
-                    "text": SYSTEM_PROMPT,
+                    "text": prompt.SYSTEM_PROMPT,
                     "cache_control": {"type": "ephemeral"},
                 }
             ],
-            "tools": tools.TOOL_SCHEMAS,
+            "tools": prompt.TOOL_SCHEMAS,
             "messages": self.messages,
         }
 
@@ -224,7 +148,7 @@ class Agent:
                     "type": "tool_result",
                     "name": block.name,
                     "input": dict(block.input or {}),
-                    "result": _summarise_for_ui(block.name, result),
+                    "result": result,
                     "is_error": "error" in result,
                 }
                 tool_results.append(
@@ -261,75 +185,3 @@ def _usage(message: Any) -> dict[str, Any]:
         "cache_read_input_tokens": getattr(u, "cache_read_input_tokens", None),
         "cache_creation_input_tokens": getattr(u, "cache_creation_input_tokens", None),
     }
-
-
-def _summarise_for_ui(name: str, result: dict[str, Any]) -> dict[str, Any]:
-    """Compact a tool result for the transparency panel.
-
-    The model gets the full payload; the browser gets enough to show what the tool
-    actually returned without shipping the entire signal tree over SSE.
-    """
-    if "error" in result:
-        return {"error": result["error"]}
-
-    if name == "rank_expansion_candidates":
-        return {
-            "scope": result.get("scope"),
-            "eligible_count": result.get("eligible_count"),
-            "top": [
-                {
-                    "rank": r["rank"],
-                    "airport": r["airport"],
-                    "score": r["score"],
-                    "verdict": r["verdict"],
-                }
-                for r in result.get("ranking", [])[:8]
-            ],
-        }
-    if name == "compare_airports":
-        return {
-            "resolved": [
-                {"query": r["query"], "code": r["code"]} for r in result.get("resolved", [])
-            ],
-            "congestion_ranking": [
-                {
-                    "rank": c["congestion_rank"],
-                    "airport": c["airport"],
-                    "index": c["congestion_index"],
-                    "load_factor_pct": c["load_factor_pct"],
-                }
-                for c in result.get("congestion_ranking", [])
-            ],
-        }
-    if name == "airport_profile":
-        return {
-            "airport": result.get("airport"),
-            "score": result.get("score"),
-            "verdict": result.get("verdict"),
-            "data_quality": result.get("data_quality"),
-            "load_factor_pct": (result.get("facts") or {}).get("load_factor_pct"),
-        }
-    if name == "haul_mix":
-        answer = result.get("answer", {})
-        return {
-            "airport": (result.get("resolved") or {}).get("code"),
-            "basis": answer.get("basis"),
-            "long_haul_share_pct": answer.get(
-                "long_haul_share_pct", answer.get("long_haul_share_pct_estimate")
-            ),
-            "range": answer.get("long_haul_share_pct_range"),
-            "threshold_miles": result.get("threshold_miles"),
-        }
-    if name == "unmet_demand":
-        return {
-            "airport": result.get("airport"),
-            "unmet_index_pct": result.get("unmet_demand_index_pct_of_passengers"),
-            "basis": result.get("basis"),
-            "driver_count": len(result.get("why", [])),
-        }
-    return {"keys": sorted(result)[:12]}
-
-
-def open_connection() -> sqlite3.Connection:
-    """Per-request DB handle. SQLite connections are not shareable across threads."""
-    return bts.connect()
