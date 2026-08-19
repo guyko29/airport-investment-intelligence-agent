@@ -74,6 +74,21 @@ which data produced each claim.
 
 ---
 
+## Voice input
+
+The microphone button in the composer dictates a question via the browser's built-in
+`SpeechRecognition` API — no audio leaves the browser, no extra API key. The transcript
+lands in the input box rather than sending itself, because recognition mishears airport
+codes often enough that a silent auto-send is a real risk.
+
+A deterministic pass repairs what dictation reliably breaks before the text is handed
+over: `s f o` becomes `SFO`, `lacks` becomes `LAX`, `seatac` becomes `SEA`. Ordinary
+sentences pass through untouched.
+
+Chrome or Edge only, over HTTPS or localhost. Elsewhere the button is not rendered.
+
+---
+
 ## Data sources
 
 All public, no API keys.
@@ -131,7 +146,7 @@ app/
   ingest.py           BTS + OurAirports + optional segment CSVs → SQLite
   faa.py              live FAA status
   main.py             FastAPI server
-web/index.html        chat UI (no build step)
+web/index.html        chat UI + browser dictation (no build step)
 tests/                88 tests
 DESIGN.md             methodology, tradeoffs, where AI is used
 ```
@@ -167,3 +182,4 @@ curl -s localhost:8000/health | python -m json.tool
 - This ranks where demand presses against capacity. It says nothing about construction
   cost, land availability or local politics — one input to a decision, not the decision.
 - Sessions are held in memory and are lost on restart.
+- Voice is input only — spoken answers are not implemented.

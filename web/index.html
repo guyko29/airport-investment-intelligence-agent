@@ -379,6 +379,28 @@
   #send:hover:not(:disabled) { background: var(--accent-2); }
   #send:active:not(:disabled) { transform: scale(.94); }
   #send:disabled { opacity: .4; cursor: not-allowed; }
+  /* Hidden until feature detection confirms the browser has SpeechRecognition;
+     Firefox and Safari get the unchanged typed composer rather than a dead button. */
+  #mic {
+    flex: none; width: 42px; height: 42px; border-radius: 11px;
+    border: 1px solid var(--border); background: var(--surface); color: var(--muted);
+    cursor: pointer; display: none; place-items: center;
+    transition: color .15s, border-color .15s, background .15s, transform .1s;
+  }
+  #mic.on { display: grid; }
+  #mic svg { width: 18px; height: 18px; }
+  #mic:hover:not(:disabled) { color: var(--text); border-color: var(--muted); }
+  #mic:active:not(:disabled) { transform: scale(.94); }
+  #mic:disabled { opacity: .4; cursor: not-allowed; }
+  #mic[aria-pressed="true"] {
+    color: var(--on-accent); background: #d1453b; border-color: #d1453b;
+    animation: mic-pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes mic-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, #d1453b 55%, transparent); }
+    50%      { box-shadow: 0 0 0 6px color-mix(in srgb, #d1453b 0%, transparent); }
+  }
+  @media (prefers-reduced-motion: reduce) { #mic[aria-pressed="true"] { animation: none; } }
 
   /* ------------------------------------------------- activity side drawer */
 
@@ -562,6 +584,9 @@
     <div id="composer">
       <div class="inner">
         <textarea id="input" placeholder="Ask about airport capacity, congestion or expansion candidates…" rows="1"></textarea>
+        <button id="mic" type="button" aria-pressed="false" aria-label="Dictate a question" title="Dictate a question">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4"/></svg>
+        </button>
         <button id="send" aria-label="Send message">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12h14M12.5 5.5 19 12l-6.5 6.5"/></svg>
         </button>
@@ -754,6 +779,7 @@ async function send(text) {
   if (busy || !text.trim()) return;
   busy = true;
   sendEl.disabled = true;
+  micEl.disabled = true;
   document.body.classList.add('agent-busy');
   addMessage('user', text);
   inputEl.value = '';
@@ -839,6 +865,7 @@ async function send(text) {
   } finally {
     busy = false;
     sendEl.disabled = false;
+    micEl.disabled = false;
     document.body.classList.remove('agent-busy');
     inputEl.focus();
   }
@@ -866,6 +893,102 @@ inputEl.addEventListener('input', () => {
   inputEl.style.height = 'auto';
   inputEl.style.height = Math.min(inputEl.scrollHeight, 190) + 'px';
 });
+
+// ---- dictation ------------------------------------------------------------
+//
+// Speech-to-text only, and deliberately client-side: the browser's own
+// SpeechRecognition means no audio ever reaches our server, no extra API key and
+// no added latency. The transcript lands in the composer instead of sending
+// itself, because recognition mangles airport codes often enough that a silent
+// auto-send would put a wrong question in front of the agent. The user reads it,
+// fixes it if needed, and presses Enter.
+//
+// Nothing below touches the agent: what it receives is the same text a keyboard
+// would have produced.
+
+const micEl = document.getElementById('mic');
+const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+// Dictated airport codes come back as loose letters ("s f o") or near-homophones
+// ("lacks"), neither of which app/config.py's resolver can match. Repairing them
+// here is deterministic and cheap; anything it does not recognise is passed
+// through untouched for the server-side resolver to handle.
+const SPOKEN_CODES = {
+  'lacks': 'LAX', 'lax': 'LAX', 'sea tac': 'SEA', 'seatac': 'SEA',
+  'o hare': 'ORD', 'ohare': 'ORD', 'jfk': 'JFK', 'sfo': 'SFO',
+};
+
+function normaliseTranscript(text) {
+  let out = text;
+  // "s f o" / "j. f. k." -> "SFO" / "JFK". Three or four single letters in a row
+  // is a spelled-out code; two is more likely to be real words ("a b").
+  out = out.replace(/\b(?:[a-z][.\s]+){2,3}[a-z]\.?(?![a-z])/gi,
+    m => m.replace(/[.\s]/g, '').toUpperCase());
+  for (const [spoken, code] of Object.entries(SPOKEN_CODES)) {
+    out = out.replace(new RegExp(`\\b${spoken}\\b`, 'gi'), code);
+  }
+  return out.replace(/\s+/g, ' ').trim();
+}
+
+if (SpeechRec) {
+  micEl.classList.add('on');
+
+  const rec = new SpeechRec();
+  rec.lang = 'en-US';           // the data, the airport names and the prompts are all US English
+  rec.continuous = false;       // one question per press
+  rec.interimResults = true;    // show words as they are recognised, so a misheard code is visible early
+  rec.maxAlternatives = 1;
+
+  let listening = false;
+  // Text already in the box when dictation started, so interim results replace
+  // only what was dictated rather than eating what was typed.
+  let base = '';
+
+  const setListening = on => {
+    listening = on;
+    micEl.setAttribute('aria-pressed', String(on));
+    micEl.title = on ? 'Stop dictating' : 'Dictate a question';
+  };
+
+  const autosize = () => {
+    inputEl.style.height = 'auto';
+    inputEl.style.height = Math.min(inputEl.scrollHeight, 190) + 'px';
+  };
+
+  rec.onstart = () => setListening(true);
+
+  rec.onresult = e => {
+    let text = '';
+    for (let i = 0; i < e.results.length; i++) text += e.results[i][0].transcript;
+    // Only the final result is normalised: rewriting interim text as it streams
+    // makes the box jump around while the user is still speaking.
+    const done = e.results[e.results.length - 1].isFinal;
+    inputEl.value = (base + (done ? normaliseTranscript(text) : text)).trim();
+    autosize();
+  };
+
+  rec.onerror = e => {
+    setListening(false);
+    if (e.error === 'no-speech' || e.error === 'aborted') return;   // routine, not worth a message
+    addMessage('error', e.error === 'not-allowed'
+      ? 'Microphone access was denied. Enable it in the browser site settings, or type the question instead.'
+      : `Dictation failed: ${e.error}`);
+  };
+
+  rec.onend = () => { setListening(false); inputEl.focus(); };
+
+  micEl.addEventListener('click', () => {
+    if (listening) { rec.stop(); return; }
+    if (busy) return;                        // a request is already in flight
+    base = inputEl.value ? inputEl.value.replace(/\s*$/, ' ') : '';
+    try {
+      rec.start();
+    } catch {
+      // start() throws if the previous session has not fully torn down yet.
+      setListening(false);
+    }
+  });
+}
 
 document.querySelectorAll('.examples button').forEach(b => {
   // The tag is a label, not part of the question.
