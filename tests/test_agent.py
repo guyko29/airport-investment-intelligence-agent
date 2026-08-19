@@ -264,10 +264,10 @@ async def test_request_uses_the_configured_model_and_no_removed_parameters(con):
     await collect(agent, "hi", con)
     params = agent.client.calls[0]
 
-    assert params["model"] == config.MODEL == "claude-opus-5"
+    assert params["model"] == config.MODEL == "claude-sonnet-5"
     assert params["thinking"]["type"] == "adaptive"
     assert params["output_config"]["effort"] == config.EFFORT
-    # These are rejected with a 400 on Opus 5.
+    # These are rejected with a 400 on Sonnet 5.
     for removed in ("temperature", "top_p", "top_k"):
         assert removed not in params
 

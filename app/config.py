@@ -310,7 +310,7 @@ METRO_ALIASES = {
 # Model configuration
 # ---------------------------------------------------------------------------
 
-MODEL = "claude-opus-5"
+MODEL = "claude-sonnet-5"
 MAX_TOKENS = 8_000
 EFFORT = "medium"          # low | medium | high | xhigh | max
 MAX_TOOL_ITERATIONS = 8

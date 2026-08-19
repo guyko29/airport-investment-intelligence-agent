@@ -124,7 +124,7 @@ app/
   config.py           weights, anchor tables, thresholds, SCORING_VERSION
   kpis.py             pure deterministic scoring — no I/O
   tools.py            the 5 tools exposed to the model
-  agent.py            claude-opus-5 tool-use loop with streaming
+  agent.py            claude-sonnet-5 tool-use loop with streaming
   main.py             FastAPI server
   data/
     bts.py            BTS T-100 ingest + windowed aggregate queries

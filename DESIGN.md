@@ -240,9 +240,17 @@ traced to an exact set of weights, anchors and thresholds.
 
 ### Model configuration
 
-`claude-opus-5`, adaptive thinking with `display: "summarized"` (so reasoning renders
-in the transparency panel), `effort: "medium"` — Opus 5 is strong at medium and this is
-an interactive tool where latency is felt.
+`claude-sonnet-5`, adaptive thinking with `display: "summarized"` (so reasoning renders
+in the transparency panel), `effort: "medium"`.
+
+Sonnet over Opus because of how little is actually asked of the model here. It performs
+no arithmetic and holds no domain data — it routes a question to one of five tools and
+explains what came back. That is a classification-and-phrasing job, not a reasoning one,
+and the hard part of the analysis lives in `kpis.py` where it is unit-tested. Against
+that, this is an interactive tool where latency is felt on every turn. Opus 5 would buy
+more headroom on genuinely ambiguous multi-step questions; the tool-selection guidance
+in the system prompt is explicit enough that there was no observed routing difference to
+pay for.
 
 A **manual tool-use loop over `messages.stream()`** rather than the SDK's tool runner,
 because the UI needs both per-token text deltas *and* interception of each tool call
@@ -323,7 +331,7 @@ web/index.html          single-file chat UI, SSE, tool-transparency panel
         │
 app/main.py             FastAPI: POST /chat (SSE), /health, /reset
         │
-app/agent.py            claude-opus-5 tool-use loop, streaming, prompt caching
+app/agent.py            claude-sonnet-5 tool-use loop, streaming, prompt caching
         │  the model chooses a tool; it never computes a number
 app/tools.py            5 tools: resolve free text → query → score → explain
         │
